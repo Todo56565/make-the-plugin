@@ -344,7 +344,7 @@ section / context 的 `text()` 对无团队会话返回空串；队长建团后�
 
 ### 4.4 本会话先前窗口原文（只读 `history.*` 等价工具，用户 2026-10-14 确认需要）
 
-详见 `context-compare/community-plugins-survey.md`。设计要点（建议，待确认）：
+详见 `context-compare/community-plugins-survey.md`。设计要点（用户已采纳，2026-10-14）：
 
 | 项 | 设计 |
 |---|---|
@@ -414,7 +414,7 @@ section / context 的 `text()` 对无团队会话返回空串；队长建团后�
 
 **直接调自动压缩函数是否可行（7-7 追问）→ 不可行，有三道门。** ① 自动压缩的判定函数 `compactIfNeeded` 是 compaction-basic 引擎实例的内部方法，不是公共接口；公共接口只有 `ctx.compaction.compactNow / compactRegion`（`compaction/src/index.ts:139-190`）。② `ctx.compaction` 只在 preset 的 `isolate: { compaction: true }` 组内可见，宿主层插件注入它会永远挂起（§3.2）——这是最硬的一道。③ 即使拿到，`compactNow` 要求 agent 空闲，否则 `busy`；两者都受 `compaction/start…end` 持久锁约束。
 
-**7-8 「原文」的含义。** 指上一个窗口里被摘要**替换掉的原始消息**（用户 / 助手 / 工具结果），不是摘要本身。它们仍在会话日志里，只是被 shadow。Codex 的 `history.*` 工具正是**只读**读取同一 rollout 里先前窗口的条目（`codex-rs/ext/history-notes/src/tools.rs:120`「Read a bounded range from private model-only history」，可按 `window_id` 过滤），从不修改。本插件若做，同样只读；难点只在 DSH 侧缺少非弃用的读取接口（只有 `eventAt/snapshotEvents` 或 `session-query`）。**待用户决定是否要这个能力。**
+**7-8 「原文」的含义。** 指上一个窗口里被摘要**替换掉的原始消息**（用户 / 助手 / 工具结果），不是摘要本身。它们仍在会话日志里，只是被 shadow。Codex 的 `history.*` 工具正是**只读**读取同一 rollout 里先前窗口的条目（`codex-rs/ext/history-notes/src/tools.rs:120`「Read a bounded range from private model-only history」，可按 `window_id` 过滤），从不修改。本插件若做，同样只读；非弃用读取接口已找到（`sessionPersistence` 只读句柄），用户已确认需要并采纳 §4.4 实现。
 
 **7-10（新）DSH 自动压缩的摘要请求怎么处理。** 当前设计**不拦截**：摘要照常生成，作为检查点 user 消息进入新窗口，本插件的笔记是对摘要的补充。技术上存在拦截点：`llm/stream` 是宿主 `llm` 服务上的 waterfall 中间件，listener 可「yield your own chunks to short-circuit」（`llm/llm/src/index.ts:62-75`），`llm` 在宿主层，宿主层插件可以挂【推断：preset 隔离组内发起的调用是否经过宿主层 listener，需 PoC】。拦截后的选择：
 - 直接丢弃 ⇒ 压缩以 `summary` 失败告终，历史不缩，最终撞上下文上限，**不可行**
@@ -426,6 +426,7 @@ section / context 的 `text()` 对无团队会话返回空串；队长建团后�
 
 ### 待用户确认
 
+（无，全部已决。）
 
 ---
 
