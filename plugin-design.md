@@ -155,7 +155,7 @@ interface Config {
 | 扩展点 | 原因 | 锚点 |
 |---|---|---|
 | `ctx.compaction` | web profile 下宿主层 `compaction-basic` 行 `disabled: true`，真实实例在 preset 的 `isolate: { compaction: true }` 组里；宿主层插件 inject 它会**永远挂起** | `web-app/cordis.patch.yml:527-528`、`presets/standard.patch.yml:66-71`；`compaction/src/index.ts:111-119`「Load one implementation per context」 |
-| 压缩专用 ctx 事件 | 宿主在 `Events` 上只声明了 `compaction/summary-error`；`compaction/start|summary|end|prune` 是**会话日志事件**（log-only） | `compaction/src/index.ts:88-107`、`compaction/src/types.ts:17-90` |
+| 压缩专用 ctx 事件 | 宿主在 `Events` 上只声明了 `compaction/summary-error`；`compaction/start` / `summary` / `end` / `prune` 是**会话日志事件**（log-only） | `compaction/src/index.ts:88-107`、`compaction/src/types.ts:17-90` |
 | `session.ownEvents()` / `snapshotEvents()` / `eventAt()` | 宿主标为 `@deprecated`：「new calls are prohibited」 | `packages/core/session/src/index.ts:706-742` |
 | developer 角色通道 | DSH 没有；对等物是 `systemPrompt.context()` 的 user 角色快照 | `system-prompt/src/index.ts:78` |
 | agent-teams 内部函数（`readTeamSync`、`leadIdentityOf`…） | 包 `exports` 只有 `.` 与 `./client`，入口只导出 `name/inject/Config/usageSectionText/apply`；内部函数**不是公共 API** | `dsh-agent-teams/package.json` `exports`；`src/index.ts:55-193` |
