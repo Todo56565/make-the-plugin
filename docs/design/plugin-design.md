@@ -286,7 +286,7 @@ section / context 的 `text()` 对无团队会话返回空串；队长建团后�
 | 阈值 | `remindAtRatio`（默认 0.37）起提示；`compactAtRatio`（默认 0.45）= compaction-basic 实际压缩点（§2.4） |
 | 注入位 | `systemPrompt.context({ name: 'dsh-token-budget:budget', order: 130 })`（排在 `SUBAGENT_DELEGATION 120` 之后） |
 | 文本 | `u < remindAtRatio` ⇒ **空串**（空 context 不贡献内容，`system-prompt/src/index.ts:84`）；否则按 `bucketStep` 向下取档，渲染「上下文已用约 {档}%，约 {compactAt}% 时会自动压缩」+（`notes` 开启时）「请现在用 team_notes 记下进度与下一步」。**只在跨档时文本变化** ⇒ 默认每窗口至多 3 次快照追加（37/40/43%） |
-| 工具 | `budget.tool = true` 时注册 `context_remaining`：只读调用者自身会话（`exec.agent.session`），返回 `{pressure, contextWindow, estimatedTrigger, remaining, estimated: true}`；**不能指定其他会话**（与 Codex `get_context_remaining` 一致，`codex-rs/core/src/tools/handlers/get_context_remaining.rs:85-93`） |
+| 工具 | `budget.tool = true` 时注册 `context_remaining`：只读调用者自身会话（`exec.agent.session`），返回 `{pressure, contextWindow, estimatedTrigger, remaining, estimated: true}`；**不能指定其他会话**（与 Codex `get_context_remaining` 一致，`codex-rs/core/src/tools/handlers/get_context_remaining.rs:85-93`）。**实现**（`src/budget/tool.ts`）：无参数，仅团队会话；`estimatedTrigger = floor(W × compactAtRatio)`，`remaining = max(0, T − P)`；返回给模型的是一句中文文本（已用 P/W、约 x%、预计压缩点、剩余约 n token（估算值）），容量未知时说明原因 |
 | 存储键 | 无持久状态（全部由 token-meter 与投影即时算出） |
 | 作用域 | 单个 session；只对能解析出团队身份的会话生效（用户决定，无 `scope` 配置） |
 | 与压缩交互 | 压缩后 `P` 骤降 ⇒ 文本回到空串 ⇒ 追加一份「不含预算段」的快照（每窗口一次）；本插件**不触发、不阻止、不改动**压缩 |

@@ -22,6 +22,7 @@ import { TeamDirectory, isTeamEvent } from './team/directory.ts'
 import { registerWindowCounter, windowOf } from './window/counter.ts'
 import { bucketOf, usageOf } from './budget/usage.ts'
 import { reminderText } from './budget/reminder.ts'
+import { registerContextRemainingTool } from './budget/tool.ts'
 import { CompactionGate, compactionEngineOf } from './budget/compact.ts'
 import { createStoreCache, registerTeamNotesTool } from './notes/tool.ts'
 import { CompletionTracker, TeamToolCalls, mergeMemberNote, type Generate } from './notes/merge.ts'
@@ -156,6 +157,15 @@ export function apply(ctx: Context, raw: Config): void {
       load: (agent, signal) => source.load(agent.session.id, signal),
       limits: () => config.historyOptions,
     }), 'dsh-token-budget: history tools')
+  }
+
+  // ── context_remaining 工具（设计 §4.1）──
+  if (config.budget.tool) {
+    ctx.effect(() => registerContextRemainingTool(ctx, {
+      isTeamAgent: agent => teams.identityOf(agent) !== undefined,
+      usage: agent => usageOf(ctx, agent.session),
+      compactAtRatio: () => config.budget.compactAtRatio,
+    }), 'dsh-token-budget: context_remaining tool')
   }
 
   // ── token budget：45% 主动压缩（方案 D1）──
