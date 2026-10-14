@@ -25,7 +25,7 @@
   - `inject` 缺 `agentPresets`、`sessions`、`sessionPersistence`（设计:101 要求，代码见 `src/index.ts:38`）；`llm` 设计和代码都没声明（`src/index.ts:219`）；
   - 核心路径没有接线测试，PoC-2 到 PoC-9 未做（设计:379-393）；
   - 压缩失败或取不到引擎时，同一窗口不再重试，只能等 80% 兜底（`src/index.ts:179-187`）；
-  - 非团队会话每 5 秒同步扫一次磁盘（`src/team/directory.ts:81`），偏离设计:254；
+  - （低优先级）非团队身份只缓存 5 秒（`src/team/directory.ts:31,39-52`）。超时后，下一次组装 prompt 或 pre-step 时会按需同步重扫 `.agent-teams/`，不是定时器。实现与设计:254 有出入，但有理由；建议更新设计文字，或改为按 mtime 失效；
   - README 没有提示 `allow` 策略要放行本插件工具（设计:372 要求提示）；history 没有 `sessionQuery` 回退（设计:353）；
   - 发布形态：private、UNLICENSED、没有 CHANGELOG。
 
