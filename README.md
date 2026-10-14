@@ -6,7 +6,7 @@
 - **只作用于团队会话**（队长与成员），普通会话不受影响。
 - 插件整体由 DSH 插件管理面板启停。
 
-> 状态：**设计已定稿，尚未开始实现。** 权威设计见 [`docs/design/plugin-design.md`](docs/design/plugin-design.md)。
+> 状态：**实现中。** 已完成包骨架、团队身份解析、窗口计数、token budget（提示 + 45% 主动压缩）；notes 与 history 待实现，尚未在真实 DSH 中 PoC。 权威设计见 [`docs/design/plugin-design.md`](docs/design/plugin-design.md)。
 
 ## 功能
 
@@ -23,10 +23,10 @@
 ```
 make-the-plugin/
 ├── README.md                    本文件：项目总览与目录规划
-├── package.json                 【待建】npm 包 dsh-token-budget（files 白名单只发布 lib/、cordis.patch.yml、README）
-├── cordis.patch.yml             【待建】DSH 装载补丁：把插件行挂到宿主层
-├── tsconfig.json                【待建】
-├── src/                         【待建】插件源码（TypeScript）
+├── package.json                 npm 包 dsh-token-budget（files 白名单只发布 lib/、cordis.patch.yml、README）
+├── cordis.patch.yml             DSH 装载补丁：把插件行挂到宿主层
+├── tsconfig.json
+├── src/                         插件源码（TypeScript）
 │   ├── index.ts                   入口：name / inject / Config / apply()
 │   ├── config.ts                  配置 schema（Schemastery）与默认值
 │   ├── team/                      团队身份解析、team.json 缓存读取
@@ -35,7 +35,7 @@ make-the-plugin/
 │   ├── prompt/                    稳定的 system prompt 指针 section
 │   ├── notes/                     笔记存储、team_notes 工具、hint、可选自动合并
 │   └── history/                   persistence 只读读取、窗口索引、history 工具
-├── test/                        【待建】单元测试，目录结构与 src/ 对应
+├── test/                        单元测试（node --test），目录结构与 src/ 对应
 ├── docs/
 │   ├── design/                    设计文档
 │   │   ├── plugin-design.md         权威设计规格（实现以此为准）
