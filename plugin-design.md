@@ -109,8 +109,14 @@ interface Config {
   budget?: {
     remindAtRatio: number            // 默认 0.37：P / W ≥ 37% 起提示（用户可改）
     compactAtRatio: number           // 默认 0.45：P / W ≥ 45% 换窗压缩（用户可改；落点见 §2.4）
-    bucketStep: number               // 默认 0.02：提示文本按 2% 一档量化，只在跨档时变化（37/39/41/43%）
+    bucketStep: number               // 默认 0.03：提示文本按 3% 一档量化，只在跨档时变化（37/40/43%）
     tool: boolean                    // 默认 true：注册 context_remaining 工具
+  }
+  notesMerge?: {
+    enabled: boolean                 // 默认 false = 由队长维护 workspace.md；true = 后台模型合并
+    provider?: string                // 开启时由用户从 ctx.llm.listProviders() / listModels(provider) 中选
+    model?: string
+    reasoningEffort?: string         // 取自该模型的 LlmReasoningEffortInfo.efforts
   }
   notesOptions?: {
     maxFileBytes: number             // 默认 10000（照 Codex memory_summary 硬上限）
@@ -142,7 +148,7 @@ interface Config {
 
 | 方案 | 做法 | 代价 |
 |---|---|---|
-| **A（建议 v1）** | 在 DSH「Agent presets」设置页把 standard preset 内 `compaction-basic` 的 `thresholdRatio` 改为 0.45（页面保存会写 profile 的 preset 覆盖，`bundle/web-app/README.md:89`） | ① **作用于该 preset 的所有会话**，不只团队会话；② 45% 存在两处（preset 与本插件 `compactAtRatio`），要手动保持一致；③ preset 覆盖会冻结整份插件列表，DSH 升级 standard 时需重做（§14.1 已踩） |
+| **A（用户已选，v1）** | 在 DSH「Agent presets」设置页把 standard preset 内 `compaction-basic` 的 `thresholdRatio` 改为 0.45（页面保存会写 profile 的 preset 覆盖，`bundle/web-app/README.md:89`） | ① **作用于该 preset 的所有会话**，不只团队会话；② 45% 存在两处（preset 与本插件 `compactAtRatio`），要手动保持一致；③ preset 覆盖会冻结整份插件列表，DSH 升级 standard 时需重做（§14.1 已踩） |
 | B | 本插件 bundle 再插入一个**自带 preset**（如 `team-budget`），内容 = standard + `thresholdRatio` 取本插件配置；团队任务选这个 preset | 45% 只有一处；但要复制整份 standard 插件列表，上游一改就漂移；队长/成员是否继承 preset 需 PoC |
 | C | `modelPolicies` 按模型设 0.45（`compaction-basic/README.md:75`），给成员单独用一个模型路由 | 只有成员与队长用不同模型时才能区分团队会话 |
 
@@ -259,7 +265,7 @@ section / context 的 `text()` 对无团队会话返回空串；队长建团后�
 | 数据 | `P = ctx.tokenMeter.measure(session).totalTokens`；`W = stateOf(session, 'contextPressure').contextWindow`；已用比例 `u = P / W` |
 | 阈值 | `remindAtRatio`（默认 0.37）起提示；`compactAtRatio`（默认 0.45）= compaction-basic 实际压缩点（§2.4） |
 | 注入位 | `systemPrompt.context({ name: 'dsh-token-budget:budget', order: 130 })`（排在 `SUBAGENT_DELEGATION 120` 之后） |
-| 文本 | `u < remindAtRatio` ⇒ **空串**（空 context 不贡献内容，`system-prompt/src/index.ts:84`）；否则按 `bucketStep` 向下取档，渲染「上下文已用约 {档}%，约 {compactAt}% 时会自动压缩」+（`notes` 开启时）「请现在用 team_notes 记下进度与下一步」。**只在跨档时文本变化** ⇒ 默认每窗口至多 4 次快照追加（37/39/41/43%） |
+| 文本 | `u < remindAtRatio` ⇒ **空串**（空 context 不贡献内容，`system-prompt/src/index.ts:84`）；否则按 `bucketStep` 向下取档，渲染「上下文已用约 {档}%，约 {compactAt}% 时会自动压缩」+（`notes` 开启时）「请现在用 team_notes 记下进度与下一步」。**只在跨档时文本变化** ⇒ 默认每窗口至多 3 次快照追加（37/40/43%） |
 | 工具 | `budget.tool = true` 时注册 `context_remaining`：只读调用者自身会话（`exec.agent.session`），返回 `{pressure, contextWindow, estimatedTrigger, remaining, estimated: true}`；**不能指定其他会话**（与 Codex `get_context_remaining` 一致，`codex-rs/core/src/tools/handlers/get_context_remaining.rs:85-93`） |
 | 存储键 | 无持久状态（全部由 token-meter 与投影即时算出） |
 | 作用域 | 单个 session；只对能解析出团队身份的会话生效（用户决定，无 `scope` 配置） |
@@ -350,7 +356,7 @@ section / context 的 `text()` 对无团队会话返回空串；队长建团后�
 
 ---
 
-## 7. 决议与待确认（2026-10-14 用户答复后）
+## 7. 决议与待确认（2026-10-14 两轮用户答复后）
 
 ### 已决议（用户）
 
@@ -361,26 +367,31 @@ section / context 的 `text()` 对无团队会话返回空串；队长建团后�
 | 7-6 | 开关 | **两个开关 `notes` / `history`，默认全开**；tokenBudget 由插件管理面板整体启停 |
 | 新 | 阈值 | 已用 **37% 提示**、**45% 强制换窗压缩**，两值可配（落点 §2.4） |
 | 新 | 名称 / 形态 | **dsh-tokenBudget**，独立 dsh 插件，与社区原版并存 |
+| 7-1 | 缓存论 | **分支 B**：窗口内会变的内容走运行时上下文；system 头只放每会话固定的指针 |
+| 7-3 | 合并层 | 设置开关 `notesMerge.enabled`，**默认关 = 由队长维护** `workspace.md`；开启时用宿主 `ctx.llm.listProviders()` / `listModels(provider)` 列出用户 DSH 账户上的模型与推理强度（`LlmReasoningEffortInfo`，`llm/llm/src/types.ts:369-382`），由用户选择，再经 `ctx.llm.stream()` 调用 |
+| 7-4 | hint 来源 | 任务 id + 标题（缓存的 `team.json`）+ 笔记元数据（自己的文件 + 队友最近 ≤5 个） |
+| 新 | 提示档位 | `bucketStep` = **3%**（37/40/43%） |
+| 7-7 / §2.4 | 45% 落点 | **方案 A**：自动压缩是兜底；本质是把 compaction-basic 的触发配置交给用户在 DSH 现有的 Agent presets 设置页里调，本插件只在提示文本里镜像这个数 |
 
-### 建议（待用户确认）
+### 补充说明
 
-**7-1 缓存论 → 建议分支 B（只排除跨窗口缓存）。** 理由：换窗后缓存作废是对的，但**窗口内**每一步都整段重发历史，DeepSeek 前缀缓存按「从第一个 token 起的最长相同前缀」命中。若在窗口中途改 system 头，后面已缓存的整段历史全部失配——按 37% 提示点算，1M 窗口上一次就是约 37 万 token 的未命中【推断：按前缀缓存的一般机制，未实测计费】。所以：窗口内会变的内容（预算提示）**必须**走运行时上下文（追加）；窗口级内容（hint）放运行时上下文也几乎零成本，并让 system 头永远字节不变，顺带保住宿主「摘要请求复用前缀」的设计（`summarizer.ts:28-31`）。只有指针 section（每会话固定）留在 system。
+**直接调自动压缩函数是否可行（7-7 追问）→ 不可行，有三道门。** ① 自动压缩的判定函数 `compactIfNeeded` 是 compaction-basic 引擎实例的内部方法，不是公共接口；公共接口只有 `ctx.compaction.compactNow / compactRegion`（`compaction/src/index.ts:139-190`）。② `ctx.compaction` 只在 preset 的 `isolate: { compaction: true }` 组内可见，宿主层插件注入它会永远挂起（§3.2）——这是最硬的一道。③ 即使拿到，`compactNow` 要求 agent 空闲，否则 `busy`；两者都受 `compaction/start…end` 持久锁约束。
 
-**7-3 合并层 → 建议 v1 不做自动合并。** 「合并」指把各成员笔记由后台模型汇总进 `workspace.md`（项目级笔记），照 Codex phase2。v1 改为：成员只写自己的文件；`workspace.md` 由**队长**在验收任务时顺手维护，不额外调用模型。
+**7-8 「原文」的含义。** 指上一个窗口里被摘要**替换掉的原始消息**（用户 / 助手 / 工具结果），不是摘要本身。它们仍在会话日志里，只是被 shadow。Codex 的 `history.*` 工具正是**只读**读取同一 rollout 里先前窗口的条目（`codex-rs/ext/history-notes/src/tools.rs:120`「Read a bounded range from private model-only history」，可按 `window_id` 过滤），从不修改。本插件若做，同样只读；难点只在 DSH 侧缺少非弃用的读取接口（只有 `eventAt/snapshotEvents` 或 `session-query`）。**待用户决定是否要这个能力。**
 
-**7-4 hint 来源 → 建议两者组合，且几乎零成本。** 站在接手的 Agent 角度，压缩后最需要三件事：我在做哪个任务、我上次记到哪、队友最近写了什么。① 任务 id + 标题来自 `team.json`——它在身份解析（§4.0.1）时已读过并缓存，追加一行不多花 I/O；② 自己笔记文件的路径、大小、最后修改时间 + 队友最近改动的 ≤5 个笔记文件，来自 notes 目录 `readdir`+`stat`。不把笔记正文塞进 hint（正文按需 `team_notes read`），hint 仍受 `hintMaxBytes` 上限。
+**7-10（新）DSH 自动压缩的摘要请求怎么处理。** 当前设计**不拦截**：摘要照常生成，作为检查点 user 消息进入新窗口，本插件的笔记是对摘要的补充。技术上存在拦截点：`llm/stream` 是宿主 `llm` 服务上的 waterfall 中间件，listener 可「yield your own chunks to short-circuit」（`llm/llm/src/index.ts:62-75`），`llm` 在宿主层，宿主层插件可以挂【推断：preset 隔离组内发起的调用是否经过宿主层 listener，需 PoC】。拦截后的选择：
+- 直接丢弃 ⇒ 压缩以 `summary` 失败告终，历史不缩，最终撞上下文上限，**不可行**
+- 返回插件自拼的短摘要（任务契约 + 笔记指针）⇒ 等于模拟 Codex「不做摘要直接换窗」，省掉摘要请求（输入约 0.45W，大部分命中前缀缓存；输出 ≤ `maxTokens` 65,536）。代价：识别摘要请求只能靠匹配 `COMPACTION_INSTRUCTION` 文本（`compaction-basic/src/summarizer.ts:32-66`），宿主一改就失效；而且新窗口的连续性完全依赖成员是否写好笔记
+- 更稳的省钱手段是宿主现成配置：`summarizationProvider/summarizationModel` 把摘要交给更便宜的模型（`compaction-basic/README.md` 配置表）
+- 建议：v1 不拦截；做完 PoC-8（成员压缩后是否真的用笔记）再决定是否加一个默认关闭的实验开关
 
-**7-7 触发点镜像 → 被新阈值方案取代。** 不再镜像 compaction-basic 的 `thresholdRatio/headroomTokens` 公式，改为直接用 `P / W` 对照两个百分比；唯一要保证的是 compaction-basic 的 `thresholdRatio` 与 `compactAtRatio` 同为 0.45（§2.4 方案 A/B/C）。小窗口路由下 headroom 先生效的偏差记入 PoC-9。
-
-**7-8 history 覆盖本会话被压缩的原文 → 建议 v1 不做。** 压缩把旧消息换成摘要，原文仍在会话日志里（被 shadow）。要读它只能走已弃用的 `eventAt/snapshotEvents`（`session/src/index.ts:706-742`）或依赖 sqlite 索引的 `session-query`，且超出「团队级 history」作用域。v1 的设计是：37% 提示 → 成员主动写笔记 → 压缩后读笔记，笔记才是跨窗口的载体。
-
-**7-9 fork 子会话窗口计数 → 建议不扣除。** fork 子会话日志开头逐字复制了父会话的压缩事件（`fork.ts:21-30`），投影会把它们算进去，子会话可能从「第 3 窗」起步。v1 窗口编号不展示给模型，只用作 hint 的刷新闸门（编号变了就重算），继承的起始值不影响闸门；且本机团队成员 9 个中 8 个是 spawn 型，fork 很少。
+**7-9 举例。** 队长会话 C 先后自动压缩两次（窗口 1→2→3），然后用 `subagent_fork` 派出子会话 F。fork 会把 C 到分叉点的日志逐字复制成 F 的开头（`fork.ts:21-30`），其中包含那两条 `compaction/end`。本插件的窗口计数是「重放日志数 `compaction/end`」，所以 F 一出生就算「第 3 窗」，尽管 F 自己一次都没压缩过。用 `subagent`（spawn）派出的成员日志从空开始，计数从 0 起，没有这个问题。影响：若把编号展示给模型，F 会看到一个莫名的「第 3 窗」；v1 不展示，只用「编号是否变化」来决定何时重算 hint，起始值是几都不影响。**建议维持不扣除。**
 
 ### 待用户确认
 
-- 7-1 / 7-3 / 7-4 / 7-8 / 7-9 是否采纳上述建议
-- §2.4 45% 落点选 A / B / C
-- npm 包名 / plugin id 是否用 `dsh-token-budget`
+- 7-8：是否需要「只读读取本会话先前窗口原文」的工具
+- 7-10：v1 不拦截摘要请求是否同意
+- npm 包名 / plugin id 是否用 `dsh-token-budget`；两个开关是否就是 `notes` / `history`
 
 ---
 
