@@ -35,6 +35,17 @@ import { HINT_CONTEXT_ORDER, WindowHintCache, hintText, listNoteMetasSync } from
 
 export { Config }
 export const name = 'dsh-token-budget'
+/**
+ * 硬依赖只列插件启动就必须有的服务。
+ *
+ * `agentPresets`（45% 压缩取引擎）、`sessionPersistence`（history）、`llm`（notesMerge）
+ * 是按功能使用的软依赖，在调用时用 `ctx.get()` 读取（cordis 4 文档写明这是「不带 inject 要求的读取」）。
+ * cordis 4 的 inject 没有 optional 写法，列进来就会变成整插件的启动前提：
+ * 任何一个缺失或尚未就绪，notes 等功能也会跟着全部不激活。
+ * 代价是这三个服务没有生命周期绑定，所以每次调用都要重新读取，取不到时要能降级并在之后重试，
+ * 见下方 pre-step 中取不到引擎的分支。
+ * 设计文档 §2.2 列的是硬 inject，这里的写法与之不同，需要同步更新设计。
+ */
 export const inject = ['systemPrompt', 'tools', 'tokenMeter', 'sessionProjections', 'agents']
 
 /** 预算提示 context 的顺序：排在 SUBAGENT_DELEGATION(120) 之后。 */
@@ -55,6 +66,8 @@ export function apply(ctx: Context, raw: Config): void {
   const gate = new CompactionGate()
   const notesPointer = new FrozenText()
   const hints = new WindowHintCache()
+  /** 已告警过「取不到压缩引擎」的会话。 */
+  const engineMissingWarned = new Set<string>()
 
   // 窗口计数投影
   ctx.effect(() => registerWindowCounter(ctx), 'dsh-token-budget: window projection')
@@ -71,6 +84,7 @@ export function apply(ctx: Context, raw: Config): void {
     gate.forget(agent.id)
     notesPointer.forget(agent.id)
     hints.forget(agent.id)
+    engineMissingWarned.delete(agent.id)
   })
 
   // ── token budget：提示（runtime context，缓存分支 B）──
@@ -179,11 +193,15 @@ export function apply(ctx: Context, raw: Config): void {
       if (!gate.canAttempt(agent.id, window)) return next()
       const engine = compactionEngineOf(ctx, agent)
       if (engine === undefined) {
-        logger.warn(`会话 ${agent.id} 已用 ${(usage.ratio * 100).toFixed(1)}%，但取不到压缩引擎，跳过主动压缩`)
-        gate.begin(agent.id, window)
-        gate.end(agent.id)
+        // agentPresets 是软依赖（见 inject 注释），可能只是暂未就绪：不消耗本窗口的尝试次数，下一步再取。
+        // 告警按会话只打一次，避免每步刷屏。
+        if (!engineMissingWarned.has(agent.id)) {
+          engineMissingWarned.add(agent.id)
+          logger.warn(`会话 ${agent.id} 已用 ${(usage.ratio * 100).toFixed(1)}%，但取不到压缩引擎（agentPresets 未就绪或该 preset 未装压缩），本步跳过主动压缩，之后每步重试`)
+        }
         return next()
       }
+      engineMissingWarned.delete(agent.id)
       gate.begin(agent.id, window)
       try {
         const result = await engine.compactIfNeeded(agent, 'context-overflow', signal)
