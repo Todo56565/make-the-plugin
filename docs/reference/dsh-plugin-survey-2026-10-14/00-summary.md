@@ -34,7 +34,7 @@
 - 用户的既定路线是不改 agent-teams 源码，用补丁插件 dsh-token-budget 增强（设计:33-40），不写 `team.json`（设计:52）。所以需要改 agent-teams 的项都属于向上游提的建议。
 - 值得补的：
   - P0（上游建议）：用户直接与成员对话的受控通道（标记 `from=user`、抄送队长、受 attempt 约束）。补丁插件无法实现，因为邮箱由 agent-teams 原子重写（设计:340）；
-  - P1：成员换窗后自动拿到当前任务和 attempt_id。由 dsh-token-budget 承担：hint 按窗口刷新（设计:325、:415），交接模板带 attempt_id（07）。不按步注入，也不放进 system section（设计:135、:232、:413）。上游只需在成员规则里加一句「丢失 attempt_id 时调 `claim_task` 取回」（`src/tools.ts:1794-1805`）；
+  - P1：成员换窗后自动拿到当前任务和 attempt_id。由 dsh-token-budget 承担：hint 按窗口刷新（设计:325、:415），交接模板带 attempt_id（04）。不按步注入，也不放进 system section（设计:135、:232、:413）。上游只需在成员规则里加一句「丢失 attempt_id 时调 `claim_task` 取回」（`src/tools.ts:1794-1805`）；
   - P1（上游建议）：可选的任务级 worktree，Claude Code 本身也没有；
   - P2：队长广播。Claude Code 官方也是逐个发送。
 - 不照抄：Claude Code 的关机握手、成员计划由 lead 自动批准、`/resume` 不恢复队友。
@@ -44,4 +44,4 @@
 - dsh-conversation-link、dsh-agent-message、dsh-team-link、dsh-session-bridge 四个插件的评估已合并为 `03-peer-messaging.md`，结论和可借鉴的设计以该文件为准。
 - 与第 2 节相关的一点：「用户直接与成员对话」需要在 agent-teams 内部实现，不能靠这些插件补上。
 
-详细报告见 01、02、03-peer-messaging.md、07。
+详细报告见 01、02、03-peer-messaging.md、04-handoff-design.md。
