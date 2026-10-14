@@ -1,4 +1,4 @@
-# dsh-agent-teams 上下文补丁插件：设计规格（权威版）
+# dsh-tokenBudget：dsh-agent-teams 上下文补丁插件设计规格（权威版）
 
 本文件是补丁插件的**唯一权威规格**。`临时记录.md` 保留讨论结论与取证细节，`context-compare/` 保留两轮比对报告；三者冲突时以本文件为准，并应回头修正另外两处。
 
@@ -30,11 +30,14 @@
 
 ### 1.1 目标
 
-给 `@nanmicoder/dsh-agent-teams` 做**独立第三方补丁插件**（暂定包名 `@your/dsh-agent-teams-context`，plugin id `agent-teams-context`）：
+给 `@nanmicoder/dsh-agent-teams` 做**独立第三方补丁插件**，名称 **dsh-tokenBudget**（用户 2026-10-14 定名）：
 
+- 形态 = **另一个 dsh 插件**：同一功能两个插件，一个社区原版 agent-teams、一个本补丁包；原插件升级不会覆盖本补丁
 - **不修改** agent-teams 源码，也不修改 DSH 任何包
-- 以宿主层 Loader 行按 id 装载：**装上即有、卸下即无**；不装 = 原版社区 teams
-- 三个能力**各自独立开关**：`tokenBudget` / `notes` / `history`
+- 以宿主层 Loader 行按 id 装载：**装上即有、卸下即无**；不装 = 原版社区 teams。整体启停由 DSH **插件管理面板**直接管理
+- tokenBudget 是本插件的本体（插件启用即生效）；插件内只保留**两个开关**：`notes` / `history`，**默认全开**（用户 2026-10-14 决定）
+- **只管团队会话**（用户 2026-10-14 决定），非团队会话一律不注入、工具返回说明性错误
+- 命名注意：npm 包名不允许大写，`dsh-tokenBudget` 作为显示名；包名 / plugin id 建议 `dsh-token-budget`（待用户确认）
 
 ### 1.2 硬边界（已确认的用户决定，沿用 `临时记录.md` §二）
 
@@ -63,13 +66,15 @@
 
 ```yaml
 - insert:
-    - id: agent-teams-context
-      name: '@your/dsh-agent-teams-context'
+    - id: dsh-token-budget
+      name: 'dsh-token-budget'      # 显示名 dsh-tokenBudget；npm 包名须小写
       config:
         stateDir: .agent-teams      # 必须与 agent-teams 行的 stateDir 一致
-        tokenBudget: true
         notes: true
         history: true
+        budget:
+          remindAtRatio: 0.37       # 上下文已用 37% 起提示
+          compactAtRatio: 0.45      # 已用 45% 强制换窗压缩（落点见 §2.4）
 ```
 
 Loader 语义（`packages/preset/agent-preset/skills/cordis-composition-reference/SKILL.md:14-21`）：
@@ -82,9 +87,9 @@ Loader 语义（`packages/preset/agent-preset/skills/cordis-composition-referenc
 
 | 操作 | 做法 |
 |---|---|
-| 安装 | `dsh plugin add`（bundle 层插入 `agent-teams-context` 行） |
-| 整体关闭（保留安装） | profile 的 `cordis.patch.yml` 写 `- id: agent-teams-context` + `disabled: true` |
-| 单项开关 | profile 里按 id 覆盖该行，**必须重述完整 `config`**（含 `stateDir` 与三个开关），否则未写的键回到默认 |
+| 安装 | `dsh plugin add`（bundle 层插入 `dsh-token-budget` 行） |
+| 整体启停（保留安装） | DSH 插件管理面板（等价于 profile `cordis.patch.yml` 写 `- id: dsh-token-budget` + `disabled: true`） |
+| 单项开关 | profile 里按 id 覆盖该行，**必须重述完整 `config`**（含 `stateDir`、两个开关与 `budget`），否则未写的键回到默认 |
 | 卸载 | `dsh plugin remove`（或删除 bundle）【推断：命令名未在本次源码取证中核对】 |
 
 **位置只能是宿主层**：本插件不能插进 preset 内部——preset 的插件列表是 `@deepseek-ai/dsh-agent-preset` 行 `config.plugins` 里的值，不是 Loader 的 `group: true` 行；要改它只能整份重述 preset 声明（`editing-cordis-compositions/SKILL.md:54-66`），这正是 `临时记录.md` §14.1 降阈值实验踩到的坑【运行态】。宿主层也是 agent-teams 自己的位置（`dsh-agent-teams/src/index.ts:14-17`「mounts this plugin row into the host composition … so the plugin needs no realm」）。
@@ -92,22 +97,19 @@ Loader 语义（`packages/preset/agent-preset/skills/cordis-composition-referenc
 ### 2.2 配置 schema（Schemastery）
 
 ```ts
-export const name = 'agent-teams-context'
+export const name = 'dsh-token-budget'
 export const inject = ['systemPrompt', 'tools', 'tokenMeter', 'sessionProjections', 'agents']
 // 绝不能出现 'compaction'：见 §3.2
 
 interface Config {
   stateDir: string            // 默认 '.agent-teams'；与 agent-teams 行保持一致
-  tokenBudget: boolean        // 默认 true
   notes: boolean              // 默认 true
   history: boolean            // 默认 true
-  scope: 'team' | 'all'       // 默认 'team'：三能力只对能解析出团队身份的会话生效；'all' 仅影响 tokenBudget（见 §7-5）
+  // 无 tokenBudget 开关：它是插件本体，由插件管理面板整体启停；只作用于团队会话
   budget?: {
-    remindAtRemainingRatio: number   // 默认 0.2：距「压缩触发点」剩余 ≤ 20% 时开始提示
-    buckets: number[]                // 默认 [0.2, 0.1, 0.05]：提示文本只在跨档时变化
-    thresholdRatio: number           // 默认 0.8 —— 镜像 compaction-basic 默认（`compaction-basic/README.md:62`）
-    headroomTokens: number           // 默认 65536 —— 同上
-    outputReserveTokens?: number     // 缺省时触发点只按 W × thresholdRatio 估算
+    remindAtRatio: number            // 默认 0.37：P / W ≥ 37% 起提示（用户可改）
+    compactAtRatio: number           // 默认 0.45：P / W ≥ 45% 换窗压缩（用户可改；落点见 §2.4）
+    bucketStep: number               // 默认 0.02：提示文本按 2% 一档量化，只在跨档时变化（37/39/41/43%）
     tool: boolean                    // 默认 true：注册 context_remaining 工具
   }
   notesOptions?: {
@@ -122,8 +124,31 @@ interface Config {
 }
 ```
 
-- **三个开关只决定「是否注册」**：注册发生在插件 `apply()` 时，一次性完成；运行中**不按团队状态增删工具或 section**。理由：工具声明变化会迫使新 request series、头部合并（`packages/core/agent-loop/src/agent.ts:416-421` `startsSeries: … || (preparedCall?.toolUpdate === undefined && this.toolsChanged(assembly.tools))`）。【源码】
-- 镜像阈值的局限：插件在宿主层**读不到** preset 内 compaction-basic 的实际配置（`modelPolicies`、`thresholdRatio` 等）。镜像值与实际不一致时，提示的「剩余」会偏。**`临时记录.md` §十四 的 0.5 测试覆盖目前仍在 profile 里**，PoC 前必须先回退或在镜像里同步填 0.5。【推断】
+- **两个开关只决定「是否注册」**：注册发生在插件 `apply()` 时，一次性完成；运行中**不按团队状态增删工具或 section**。理由：工具声明变化会迫使新 request series、头部合并（`packages/core/agent-loop/src/agent.ts:416-421` `startsSeries: … || (preparedCall?.toolUpdate === undefined && this.toolsChanged(assembly.tools))`）。【源码】
+- 百分比的分母统一为路由容量 `W`（`contextPressure.contextWindow`），分子 `P` 与 compaction-basic 同源（`tokenMeter`）。compaction-basic 的 `thresholdRatio` 也是 `W` 的比例（`compaction-basic/README.md:62`），口径一致。
+- **`临时记录.md` §十四 的 0.5 测试覆盖目前仍在 profile 里**，PoC 前必须先回退或改成 0.45（见 §2.4）。【推断】
+
+### 2.4 「已用 45% 强制换窗压缩」的落点【源码 + 推断】
+
+**DSH 里「换窗」= 摘要压缩**：没有 Codex 那种不做摘要、直接开新窗口的路径（`临时记录.md` §五）。所以 45% 的含义是「让 compaction-basic 在 `P ≥ 0.45 × W` 时自动压缩」。
+
+**本插件自己触发不了**：
+
+1. `ctx.compaction` 只存在于 preset 的 `isolate: { compaction: true }` 组内，宿主层插件拿不到（§3.2）
+2. 即便拿到，`compactNow()` 要求 agent 空闲，否则抛 `busy`（`command-compact/src/index.ts` `case 'busy'`「the agent is not idle」）⇒ 长 turn 中途无法手动压缩
+3. 自动压缩只由 compaction-basic 自己在 `agent/pre-step` 里按 `thresholdRatio` 判定（`compaction-basic/src/index.ts:158-176` `compactIfNeeded(agent, 'pressure', signal)`）
+
+⇒ **45% 只能落在 compaction-basic 的 `thresholdRatio: 0.45`**。可选落点：
+
+| 方案 | 做法 | 代价 |
+|---|---|---|
+| **A（建议 v1）** | 在 DSH「Agent presets」设置页把 standard preset 内 `compaction-basic` 的 `thresholdRatio` 改为 0.45（页面保存会写 profile 的 preset 覆盖，`bundle/web-app/README.md:89`） | ① **作用于该 preset 的所有会话**，不只团队会话；② 45% 存在两处（preset 与本插件 `compactAtRatio`），要手动保持一致；③ preset 覆盖会冻结整份插件列表，DSH 升级 standard 时需重做（§14.1 已踩） |
+| B | 本插件 bundle 再插入一个**自带 preset**（如 `team-budget`），内容 = standard + `thresholdRatio` 取本插件配置；团队任务选这个 preset | 45% 只有一处；但要复制整份 standard 插件列表，上游一改就漂移；队长/成员是否继承 preset 需 PoC |
+| C | `modelPolicies` 按模型设 0.45（`compaction-basic/README.md:75`），给成员单独用一个模型路由 | 只有成员与队长用不同模型时才能区分团队会话 |
+
+触发点公式是 `floor(min(W × thresholdRatio, W − O − headroomTokens))`（`README.md:62`）：本机 `W = 1,000,000`、`O = 200,000`、`B = 65,536` ⇒ `min(450,000, 734,464) = 450,000`，**45% 起作用**；小窗口路由（如 128k）上 `W − O − B` 可能先于 45% 生效，届时实际触发点更早，插件提示文本里的「45%」会偏。
+
+本插件侧：`compactAtRatio` 只用于提示文本（「已用 41%，约 45% 时自动压缩」）与 PoC-9 的偏差校验；**不驱动压缩**。
 
 ### 2.3 生效与热重载
 
@@ -231,13 +256,13 @@ section / context 的 `text()` 对无团队会话返回空串；队长建团后�
 
 | 项 | 设计 |
 |---|---|
-| 数据 | `P = ctx.tokenMeter.measure(session).totalTokens`；`W = stateOf(session, 'contextPressure').contextWindow`；触发点估算 `T = floor(min(W × thresholdRatio, W − outputReserveTokens − headroomTokens))`（公式照 `compaction-basic/README.md:62`；未配 `outputReserveTokens` 时取 `W × thresholdRatio`） |
-| 剩余 | `R = max(0, T − P)`；比例 `r = R / T` |
-| 注入位 | `systemPrompt.context({ name: 'agent-teams-context:budget', order: 130 })`（排在 `SUBAGENT_DELEGATION 120` 之后） |
-| 文本 | `r > remindAtRemainingRatio` ⇒ **空串**（空 context 不贡献内容，`system-prompt/src/index.ts:84`）；否则按 `buckets` 取所在档，渲染「本窗口距自动压缩约剩 ≤{档位}%」+（`notes` 开启时）「请先用 team_notes 记录进度」。**只在跨档时文本变化** ⇒ 每窗口至多 `buckets.length` 次快照追加 |
+| 数据 | `P = ctx.tokenMeter.measure(session).totalTokens`；`W = stateOf(session, 'contextPressure').contextWindow`；已用比例 `u = P / W` |
+| 阈值 | `remindAtRatio`（默认 0.37）起提示；`compactAtRatio`（默认 0.45）= compaction-basic 实际压缩点（§2.4） |
+| 注入位 | `systemPrompt.context({ name: 'dsh-token-budget:budget', order: 130 })`（排在 `SUBAGENT_DELEGATION 120` 之后） |
+| 文本 | `u < remindAtRatio` ⇒ **空串**（空 context 不贡献内容，`system-prompt/src/index.ts:84`）；否则按 `bucketStep` 向下取档，渲染「上下文已用约 {档}%，约 {compactAt}% 时会自动压缩」+（`notes` 开启时）「请现在用 team_notes 记下进度与下一步」。**只在跨档时文本变化** ⇒ 默认每窗口至多 4 次快照追加（37/39/41/43%） |
 | 工具 | `budget.tool = true` 时注册 `context_remaining`：只读调用者自身会话（`exec.agent.session`），返回 `{pressure, contextWindow, estimatedTrigger, remaining, estimated: true}`；**不能指定其他会话**（与 Codex `get_context_remaining` 一致，`codex-rs/core/src/tools/handlers/get_context_remaining.rs:85-93`） |
 | 存储键 | 无持久状态（全部由 token-meter 与投影即时算出） |
-| 作用域 | 单个 session；`scope: 'team'` 时只对能解析出团队身份的会话生效 |
+| 作用域 | 单个 session；只对能解析出团队身份的会话生效（用户决定，无 `scope` 配置） |
 | 与压缩交互 | 压缩后 `P` 骤降 ⇒ 文本回到空串 ⇒ 追加一份「不含预算段」的快照（每窗口一次）；本插件**不触发、不阻止、不改动**压缩 |
 | 失败回退 | `W` 缺失（路由未声明容量）或 `measure` 抛错 ⇒ 空串；工具返回 `remaining: null` 与原因 |
 
@@ -270,7 +295,7 @@ section / context 的 `text()` 对无团队会话返回空串；队长建团后�
 | 为何不用通用 `write` | ① `write` 只有全量替换，无追加（`packages/fs/tool-fs/src/write.ts:76-82`）；② 成员若有 `allow` 型工具策略，通用 fs 工具可能被裁掉（`dsh-agent-teams/src/tool-policies.ts:17-24`）——本插件工具同样会被裁，见 §5-2；③ 走插件工具可在写入点强制大小上限 |
 | 上限 | 单文件 `> maxFileBytes`（默认 10,000 B，照 Codex `memory_summary.md` `< 10_000` 硬校验，`codex-rs/memories/write/src/workspace.rs:120`）⇒ **拒绝写入**并提示精简，不静默截断 |
 | 并发 | 同一文件的 write/append 在进程内串行；跨进程「最后写入赢」（`临时记录.md` §八 6.2 已接受）。DSH `edit/write` 的 `FS_STALE_VERSION` 守卫不覆盖本插件工具【推断】 |
-| 指针注入（稳定） | `systemPrompt.section({ name: 'agent-teams-context:notes', order: 620 })`（紧随 `TEAM_POLICY 600`，`system-prompt/src/index.ts:135`）：渲染「你的笔记文件 `teams/<teamId>/<agentKey>.md`；共享笔记 `workspace.md`；用 team_notes 读写」。文本只依赖 `(teamId, agentKey)`，**每会话首次渲染后不再变** ⇒ 零事件 |
+| 指针注入（稳定） | `systemPrompt.section({ name: 'dsh-token-budget:notes', order: 620 })`（紧随 `TEAM_POLICY 600`，`system-prompt/src/index.ts:135`）：渲染「你的笔记文件 `teams/<teamId>/<agentKey>.md`；共享笔记 `workspace.md`；用 team_notes 读写」。文本只依赖 `(teamId, agentKey)`，**每会话首次渲染后不再变** ⇒ 零事件 |
 | hint（窗口级） | 「最近改动的笔记文件 ≤5 个 + 行数/字节数」，形态照 Codex 夹具 `"Recent notes (up to 5, most-recent first):\n- … (2 lines, 14 UTF-8 bytes)"`（`codex-rs/ext/history-notes/tests/history_notes_extension.rs:48`）。**只在窗口计数变化时重算**（照 Codex hint 只在重建初始上下文时取一次，`临时记录.md` §10.8.3），超过 `hintMaxBytes` ⇒ **整条不注入**（照 Codex `text.len() > MAX_THREAD_HINT_BYTES` 判失败，`extension.rs:140-143`）。注入通道见 §7-1 |
 | 不抄契约 | 契约以 `team.json` 为准，不复制进笔记（`临时记录.md` §八 6.2） |
 | 作用域 | 读：同团队所有成员文件 + `workspace.md`（Codex 也允许跨 agent 读，`tools.rs:28`）；写：仅自己的文件 + `workspace.md` |
@@ -309,68 +334,53 @@ section / context 的 `text()` 对无团队会话返回空串；队长建团后�
 
 ## 6. PoC 验证清单
 
-每项给出可证伪的观测点。前置：**先按 `临时记录.md` §14.3 回退降阈值覆盖**（或把镜像阈值同步为当前值），否则 PoC-4 的数值无意义。
+每项给出可证伪的观测点。前置：**先按 `临时记录.md` §14.3 回退降阈值覆盖，再按 §2.4 把 `thresholdRatio` 设为 0.45**，否则 PoC-4 / PoC-9 的数值无意义。
 
 | # | 要证什么 | 观测 / 判据 | 依赖的推断 |
 |---|---|---|---|
-| PoC-1 | 宿主层插件 `inject: ['systemPrompt','tools','tokenMeter','sessionProjections','agents']` 能激活，不挂起 | `plugin_manager list_plugins` 显示 `agent-teams-context` 已激活（`editing-cordis-compositions/SKILL.md:74`）；故意加入 `'compaction'` 的对照版应**不激活** | §3.2 |
-| PoC-2 | 宿主层注册的 section 与 context 出现在 **preset 会话**与**成员子会话**的请求里 | 解码会话日志：`system/message` 文本含 `agent-teams-context:notes` 段；`source.kind='runtime-context'` 的 user 消息含预算段 | agent-teams usage section 同法工作（强推断） |
+| PoC-1 | 宿主层插件 `inject: ['systemPrompt','tools','tokenMeter','sessionProjections','agents']` 能激活，不挂起 | `plugin_manager list_plugins` 显示 `dsh-token-budget` 已激活（`editing-cordis-compositions/SKILL.md:74`）；故意加入 `'compaction'` 的对照版应**不激活** | §3.2 |
+| PoC-2 | 宿主层注册的 section 与 context 出现在 **preset 会话**与**成员子会话**的请求里 | 解码会话日志：`system/message` 文本含 `dsh-token-budget:notes` 段；`source.kind='runtime-context'` 的 user 消息含预算段 | agent-teams usage section 同法工作（强推断） |
 | PoC-3 | 团队身份解析与 agent-teams 判定一致；成员在 `agent/created` 时是否已写入 `team.json` | 对每个成员/队长会话，本插件解析出的 `(teamId, agentKey)` 与 `agent_teams_status` 一致；队长 fork 后代按设计判为非团队；记录成员 `agent/created` 时刻 `team.json` 中是否已有其 `members[].id` | §4.0.1-5、§4.0.2 |
 | PoC-4 | 预算提示在跨档时出现、压缩后消失，且每窗口快照追加次数 ≤ 档数 + 1 | 低阈值下跑长任务：统计两次 `compaction/end` 之间 `runtime-context` user 消息条数 | §4.1 |
 | PoC-5 | 运行时上下文被压缩替换后自动补回（本插件依赖的核心机制） | 压缩后的第一条请求前出现新的 `runtime-context` 快照，且其 seq 晚于 checkpoint 的 replace 事件 | §3.3-B（源码已读通，缺运行态） |
 | PoC-6 | 笔记写入不影响交付审计 | 某任务通过质量闸门后，成员调用 `team_notes write`；再跑 `agent_teams_status`，审计结论不变 | §4.2.1 |
 | PoC-7 | 开关切换对已存在会话是否生效 | 改 profile 覆盖关掉 `notes`，看**已存在**会话的下一次请求工具列表是否变化；新会话对照 | §2.3 |
 | PoC-8 | 子会话在压缩后是否真的去用 notes / history（行为，不是能力） | 统计压缩后 N 步内 `team_notes read` / `team_history` 调用；对照组关闭预算提示 | `临时记录.md` §九-2、§十三-5 |
-| PoC-9 | 镜像触发点与实际触发点的偏差 | 记录 `compaction/start` 前一步本插件算出的 `R`；理想值接近 0 | §2.2 |
+| PoC-9 | `compactAtRatio` 与实际压缩点一致 | 记录 `compaction/start` 前一步的 `P / W`；理想值接近 0.45（小窗口路由上可能更早，见 §2.4） | §2.4 |
 
 ---
 
-## 7. 未决问题（需用户裁决）
+## 7. 决议与待确认（2026-10-14 用户答复后）
 
-### 7-1. 缓存论是否整体排除（`临时记录.md` §14.9.5.4，本文件**不下结论**）
+### 已决议（用户）
 
-它直接决定「窗口级变化的文本（窗口编号、notes hint）放哪条通道」。每步都变的数值不受影响——无论哪个分支都要量化，理由是 §3.3 的负载累积，与缓存无关。
-
-| | 分支 A：缓存整体排除出设计依据 | 分支 B：只排除跨窗口缓存，窗口内前缀复用仍算 |
+| # | 议题 | 决议 |
 |---|---|---|
-| 判据还剩什么 | 负载是否随变化累积、事件数 | 上述两条 + 窗口内前缀复用 |
-| 窗口编号 / notes hint 放哪 | **system section 即可**：每窗口改写一次 head，一条事件，负载恒定（就地改写不累积） | **运行时上下文**：不动 system 头；每窗口追加一份快照（含全部 context），压缩时被一起收走 |
-| 代价 | 每次压缩后 system 头从第一个 token 起与上次请求不同（`agent-loop/README.md:164`），抵消宿主「摘要复用前缀」的设计（`summarizer.ts:28-31`）；在 in-history 路由上则变为追加、每个版本都重发直到被压缩（README `:160`） | 每窗口多一份 context 快照的负载；运行时上下文可被部署整体压掉（`includeRuntimeContext: false`，需设 `required: true` 对抗） |
-| 对 §八「稳定内容走 system」的影响 | 不变 | 不变；但「窗口编号属于稳定内容」这一归类不再成立，要改归「窗口级动态内容」 |
+| 7-2 | 「本任务是否经过压缩」回传 | **不记** |
+| 7-5 | tokenBudget 作用域 | **只管团队会话** |
+| 7-6 | 开关 | **两个开关 `notes` / `history`，默认全开**；tokenBudget 由插件管理面板整体启停 |
+| 新 | 阈值 | 已用 **37% 提示**、**45% 强制换窗压缩**，两值可配（落点 §2.4） |
+| 新 | 名称 / 形态 | **dsh-tokenBudget**，独立 dsh 插件，与社区原版并存 |
 
-两分支下**相同**的部分：指针 section（只依赖 teamId/agentKey）走 system；预算提示走运行时上下文且量化。
+### 建议（待用户确认）
 
-### 7-2. 「本任务是否经过压缩」的回传落点（`临时记录.md` §十三-1）
+**7-1 缓存论 → 建议分支 B（只排除跨窗口缓存）。** 理由：换窗后缓存作废是对的，但**窗口内**每一步都整段重发历史，DeepSeek 前缀缓存按「从第一个 token 起的最长相同前缀」命中。若在窗口中途改 system 头，后面已缓存的整段历史全部失配——按 37% 提示点算，1M 窗口上一次就是约 37 万 token 的未命中【推断：按前缀缓存的一般机制，未实测计费】。所以：窗口内会变的内容（预算提示）**必须**走运行时上下文（追加）；窗口级内容（hint）放运行时上下文也几乎零成本，并让 system 头永远字节不变，顺带保住宿主「摘要请求复用前缀」的设计（`summarizer.ts:28-31`）。只有指针 section（每会话固定）留在 system。
 
-候选原是 `team.json` 的 `supplementalEvidence` / `TaskEvidence.note` / 消息。**新约束**：本插件不能写 `team.json`（§1.3）。可选：(a) 本插件自有文件 `.agent-teams/.context/compactions/<teamId>.jsonl`（键 `sessionId + compactionId`），由 `team_history` 暴露；(b) 在预算/hint 文本里提示成员在 `agent_teams_update_task` 的证据字段里自报（依赖模型自律）；(c) 不做。
+**7-3 合并层 → 建议 v1 不做自动合并。** 「合并」指把各成员笔记由后台模型汇总进 `workspace.md`（项目级笔记），照 Codex phase2。v1 改为：成员只写自己的文件；`workspace.md` 由**队长**在验收任务时顺手维护，不额外调用模型。
 
-### 7-3. 笔记粒度与合并（`临时记录.md` §十三-2）
+**7-4 hint 来源 → 建议两者组合，且几乎零成本。** 站在接手的 Agent 角度，压缩后最需要三件事：我在做哪个任务、我上次记到哪、队友最近写了什么。① 任务 id + 标题来自 `team.json`——它在身份解析（§4.0.1）时已读过并缓存，追加一行不多花 I/O；② 自己笔记文件的路径、大小、最后修改时间 + 队友最近改动的 ≤5 个笔记文件，来自 notes 目录 `readdir`+`stat`。不把笔记正文塞进 hint（正文按需 `team_notes read`），hint 仍受 `hintMaxBytes` 上限。
 
-v1 = 每成员一份 + `workspace.md` 由模型显式维护。是否加「自动合并层」（照 Codex phase2：后台模型把各成员笔记合并进 `workspace.md`，带 `< 10_000` 字节硬上限）——会引入额外模型调用与费用。
+**7-7 触发点镜像 → 被新阈值方案取代。** 不再镜像 compaction-basic 的 `thresholdRatio/headroomTokens` 公式，改为直接用 `P / W` 对照两个百分比；唯一要保证的是 compaction-basic 的 `thresholdRatio` 与 `compactAtRatio` 同为 0.45（§2.4 方案 A/B/C）。小窗口路由下 headroom 先生效的偏差记入 PoC-9。
 
-### 7-4. 索引来源（`临时记录.md` §十三-6）
+**7-8 history 覆盖本会话被压缩的原文 → 建议 v1 不做。** 压缩把旧消息换成摘要，原文仍在会话日志里（被 shadow）。要读它只能走已弃用的 `eventAt/snapshotEvents`（`session/src/index.ts:706-742`）或依赖 sqlite 索引的 `session-query`，且超出「团队级 history」作用域。v1 的设计是：37% 提示 → 成员主动写笔记 → 压缩后读笔记，笔记才是跨窗口的载体。
 
-本设计默认组合：稳定路径指针（b）+ 窗口级「最近笔记」清单（从 notes 目录元数据生成，不读 `team.json`）。若用户坚持（a）「从 `team.json` 拼稳定文本」，需定拼哪些字段（任务 id/状态会变，不稳定）。
+**7-9 fork 子会话窗口计数 → 建议不扣除。** fork 子会话日志开头逐字复制了父会话的压缩事件（`fork.ts:21-30`），投影会把它们算进去，子会话可能从「第 3 窗」起步。v1 窗口编号不展示给模型，只用作 hint 的刷新闸门（编号变了就重算），继承的起始值不影响闸门；且本机团队成员 9 个中 8 个是 spawn 型，fork 很少。
 
-### 7-5. tokenBudget 是否作用于非团队会话
+### 待用户确认
 
-`scope: 'team'`（默认）只管团队会话；`'all'` 则所有会话都有预算提示。插件名是 teams 补丁，默认取 team。
-
-### 7-6. 三个开关的默认值
-
-「装上即有」⇒ 本文件默认全开。若用户希望「装上后逐项手动开」，默认改为全关。
-
-### 7-7. 触发点镜像
-
-镜像 compaction-basic 配置有漂移风险（§2.2）。替代：只报「距窗口上限 `W` 的剩余」，不估算触发点（不准但不会误导成「还早」）。
-
-### 7-8. history 是否覆盖本会话被压缩掉的原文
-
-需要读会话日志里被 shadow 的事件：宿主相关读接口已弃用（`session/src/index.ts:706-742`），可用的是 `session-query`。超出「团队级 history」的既定作用域，默认不做。
-
-### 7-9. fork 子会话的窗口计数是否扣除继承部分
-
-投影重放会把祖先的压缩事件算进 fork 子会话（§4.0.3）。扣除需要知道继承边界（`session/end-seed`，`fork.ts:24`）。仅影响「是否展示编号」，v1 不展示时可后置。
+- 7-1 / 7-3 / 7-4 / 7-8 / 7-9 是否采纳上述建议
+- §2.4 45% 落点选 A / B / C
+- npm 包名 / plugin id 是否用 `dsh-token-budget`
 
 ---
 
