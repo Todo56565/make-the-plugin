@@ -1,0 +1,11 @@
+.section { display: flex; flex-direction: column; gap: 12px; }
+.heading { margin: 8px 0 0; font-size: 13px; font-weight: 600; color: var(--dsw-alias-label-primary); }
+.row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.text { display: flex; flex-direction: column; gap: 2px; }
+.label { font-size: 13px; color: var(--dsw-alias-label-primary); }
+.hint { margin: 0; font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-secondary); }
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field label { font-size: 13px; color: var(--dsw-alias-label-primary); }
+.field select { min-height: 32px; border: 0.5px solid var(--dsw-alias-border-l4); border-radius: var(--dsw-radius-md); background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); padding: 0 8px; font: inherit; }
+.toolbar { display: flex; align-items: center; gap: 4px; }
+.notice { margin: 0; font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-secondary); }

@@ -131,6 +131,7 @@ interface Config {
 }
 ```
 
+- **实现更正（2026-10-14）：配置改为扁平、全部即时字段。** DSH 设置表单只投影 `.volatile()` 字段（`settings/src/schema.ts` `volatileForm`），共享表单模型 `SettingsFormModel` 只按顶层字段读写（路径 `[field]`）。所以对外配置为一层：`remindAtRatio / compactAtRatio / bucketStep / contextTool / notesMerge / mergeProvider / mergeModel / mergeReasoningEffort / maxFileBytes / hintMaxBytes / hintRecentNotes / historyMaxResults / historyMaxReadChars / historyMaxListItems`，插件内部换算回上面的分组结构（`src/config.ts` `toSettings`）。保存后宿主经 volatile HMR 更新，数值与合并开关/模型即时生效；`notes / history / contextTool` 仍只在 apply 时决定是否注册，改后需重启 DSH。设置页由插件 client 入口注册到 `plugins.row.config`（键 `dsh-token-budget#dsh-token-budget`），模型为级联下拉，选项来自 `ctx.remote.session.modelCatalog()`。已在真实 DSH 0.2.0-rc.2 web 中验证：页面出现、下拉有选项、保存写入 profile 的 `cordis.patch.yml`。
 - **两个开关只决定「是否注册」**：注册发生在插件 `apply()` 时，一次性完成；运行中**不按团队状态增删工具或 section**。理由：工具声明变化会迫使新 request series、头部合并（`packages/core/agent-loop/src/agent.ts:416-421` `startsSeries: … || (preparedCall?.toolUpdate === undefined && this.toolsChanged(assembly.tools))`）。【源码】
 - 百分比的分母统一为路由容量 `W`（`contextPressure.contextWindow`），分子 `P` 与 compaction-basic 同源（`tokenMeter`）。compaction-basic 的 `thresholdRatio` 也是 `W` 的比例（`compaction-basic/README.md:62`），口径一致。
 - **`临时记录.md` §十四 的 0.5 测试覆盖目前仍在 profile 里**，PoC 前必须先回退或改成 0.45（见 §2.4）。【推断】

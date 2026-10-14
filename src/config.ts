@@ -6,6 +6,7 @@
  * token budget 是插件本体，没有开关。
  */
 
+import type { Volatile } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 
 /** token budget：提示与主动压缩阈值（均为占路由容量 W 的比例）。 */
@@ -47,12 +48,10 @@ export interface HistoryOptions {
   maxListItems: number
 }
 
-export interface Config {
-  /** agent-teams 的状态目录名，必须与 agent-teams 行的 stateDir 一致（默认 `.agent-teams`）。 */
+/** 插件内部使用的分组配置（由扁平配置换算）。 */
+export interface Settings {
   stateDir: string
-  /** 笔记能力（默认开启）。 */
   notes: boolean
-  /** 只读历史工具（默认开启）。 */
   history: boolean
   budget: BudgetConfig
   notesMerge: NotesMergeConfig
@@ -60,45 +59,123 @@ export interface Config {
   historyOptions: HistoryOptions
 }
 
+/**
+ * 插件行配置（扁平）。
+ *
+ * DSH 插件设置页的表单模型只按顶层字段读写（`SettingsFormModel` 的路径为 `[field]`），
+ * 所以对外配置保持一层；插件内部再换算成 {@link Settings}。
+ * 所有字段都是即时字段（`.volatile()`）：只有即时字段会出现在设置表单里，
+ * 修改后宿主经 volatile HMR 更新，不重启插件（见 DSH docs/cookbook/adding-a-settings-card）。
+ */
+export interface Config {
+  /** agent-teams 的状态目录名，必须与 agent-teams 行的 stateDir 一致（默认 `.agent-teams`）。 */
+  stateDir: Volatile<string>
+  /** 笔记能力（默认开启）。 */
+  notes: Volatile<boolean>
+  /** 只读历史工具（默认开启）。 */
+  history: Volatile<boolean>
+  remindAtRatio: Volatile<number>
+  compactAtRatio: Volatile<number>
+  bucketStep: Volatile<number>
+  contextTool: Volatile<boolean>
+  notesMerge: Volatile<boolean>
+  mergeProvider: Volatile<string | undefined>
+  mergeModel: Volatile<string | undefined>
+  mergeReasoningEffort: Volatile<string | undefined>
+  maxFileBytes: Volatile<number>
+  hintMaxBytes: Volatile<number>
+  hintRecentNotes: Volatile<number>
+  historyMaxResults: Volatile<number>
+  historyMaxReadChars: Volatile<number>
+  historyMaxListItems: Volatile<number>
+}
+
 const ratio = (value: number) => z.number().min(0).max(1).step(0.01).default(value)
 
-export const Config: z<Config> = z.object({
-  stateDir: z.string().default('.agent-teams').description('agent-teams 状态目录名，须与 agent-teams 行的 stateDir 一致'),
-  notes: z.boolean().default(true).description('成员笔记与共享 workspace.md'),
-  history: z.boolean().default(true).description('只读历史工具：读取本会话先前窗口中被压缩隐藏的原始消息'),
-  budget: z.object({
-    remindAtRatio: ratio(0.37).description('上下文已用比例达到该值起提示'),
-    compactAtRatio: ratio(0.45).description('上下文已用比例达到该值时主动压缩（仅团队会话）'),
-    bucketStep: z.number().min(0.01).max(0.5).step(0.01).default(0.03).description('提示档位步长'),
-    tool: z.boolean().default(true).description('注册 context_remaining 工具'),
-  }).description('token budget'),
-  notesMerge: z.object({
-    enabled: z.boolean().default(false).description('自动合并共享笔记；关闭时由队长维护 workspace.md'),
-    provider: z.string().description('合并使用的模型提供方'),
-    model: z.string().description('合并使用的模型'),
-    reasoningEffort: z.string().description('合并使用的推理强度'),
-  }).description('共享笔记自动合并'),
-  notesOptions: z.object({
-    maxFileBytes: z.natural().default(10_000),
-    hintMaxBytes: z.natural().default(4_000),
-    hintRecentNotes: z.natural().min(1).default(5),
-  }).description('笔记选项'),
-  historyOptions: z.object({
-    maxResults: z.natural().min(1).default(200),
-    maxReadChars: z.natural().min(1).default(20_000),
-    maxListItems: z.natural().min(1).default(2_000),
-  }).description('历史工具选项'),
+export const Config = z.object({
+  stateDir: z.string().default('.agent-teams').description('agent-teams 状态目录名，须与 agent-teams 行的 stateDir 一致').volatile(),
+  notes: z.boolean().default(true).description('成员笔记与共享 workspace.md').volatile(),
+  history: z.boolean().default(true).description('只读历史工具：读取本会话先前窗口中被压缩隐藏的原始消息').volatile(),
+  remindAtRatio: ratio(0.37).description('上下文已用比例达到该值起提示').volatile(),
+  compactAtRatio: ratio(0.45).description('上下文已用比例达到该值时主动压缩（仅团队会话）').volatile(),
+  bucketStep: z.number().min(0.01).max(0.5).step(0.01).default(0.03).description('提示档位步长').volatile(),
+  contextTool: z.boolean().default(true).description('注册 context_remaining 工具').volatile(),
+  notesMerge: z.boolean().default(false).description('成员任务完成时自动合并共享笔记；关闭时由队长维护 workspace.md').volatile(),
+  mergeProvider: z.string().description('合并使用的模型提供方').volatile(),
+  mergeModel: z.string().description('合并使用的模型').volatile(),
+  mergeReasoningEffort: z.string().description('合并使用的推理强度').volatile(),
+  maxFileBytes: z.natural().min(1).default(10_000).description('单个笔记文件的字节上限').volatile(),
+  hintMaxBytes: z.natural().min(1).default(4_000).description('窗口 hint 的字节上限').volatile(),
+  hintRecentNotes: z.natural().min(1).default(5).description('窗口 hint 列出的最近笔记数').volatile(),
+  historyMaxResults: z.natural().min(1).default(200).description('搜索结果上限').volatile(),
+  historyMaxReadChars: z.natural().min(1).default(20_000).description('历史单次读取字符上限').volatile(),
+  historyMaxListItems: z.natural().min(1).default(2_000).description('历史单次列出条目上限').volatile(),
 })
 
+type Readable<T> = Volatile<T> | T
+
+/** 读取即时字段（兼容未包装的普通值，便于测试）。 */
+function read<T>(value: Readable<T>): T {
+  return value !== null && typeof value === 'object' && typeof (value as { get?: unknown }).get === 'function'
+    ? (value as Volatile<T>).get() as unknown as T
+    : value as T
+}
+
+/** 扁平配置 ⇒ 分组配置（读取当下的即时值）。 */
+export function toSettings(raw: Config | { [K in keyof Config]: unknown }): Settings {
+  const config = new Proxy(raw as Record<string, unknown>, { get: (target, key) => read(target[key as string]) }) as unknown as {
+    [K in keyof Config]: Config[K] extends Volatile<infer T> ? T : never
+  }
+  return {
+    stateDir: config.stateDir,
+    notes: config.notes,
+    history: config.history,
+    budget: {
+      remindAtRatio: config.remindAtRatio,
+      compactAtRatio: config.compactAtRatio,
+      bucketStep: config.bucketStep,
+      tool: config.contextTool,
+    },
+    notesMerge: {
+      enabled: config.notesMerge,
+      provider: config.mergeProvider || undefined,
+      model: config.mergeModel || undefined,
+      reasoningEffort: config.mergeReasoningEffort || undefined,
+    },
+    notesOptions: {
+      maxFileBytes: config.maxFileBytes,
+      hintMaxBytes: config.hintMaxBytes,
+      hintRecentNotes: config.hintRecentNotes,
+    },
+    historyOptions: {
+      maxResults: config.historyMaxResults,
+      maxReadChars: config.historyMaxReadChars,
+      maxListItems: config.historyMaxListItems,
+    },
+  }
+}
+
+/** 即时配置更新后，原地刷新分组配置（保持对象身份，闭包里拿到的引用随之更新）。 */
+export function refreshSettings(target: Settings, raw: Config): void {
+  const next = toSettings(raw)
+  target.stateDir = next.stateDir
+  target.notes = next.notes
+  target.history = next.history
+  Object.assign(target.budget, next.budget)
+  target.notesMerge = next.notesMerge
+  Object.assign(target.notesOptions, next.notesOptions)
+  Object.assign(target.historyOptions, next.historyOptions)
+}
+
 /** 配置自洽性检查：返回需要告警的问题（不抛错，避免插件整体挂载失败）。 */
-export function validateConfig(config: Config): string[] {
+export function validateConfig(config: Settings): string[] {
   const problems: string[] = []
   const { remindAtRatio, compactAtRatio } = config.budget
   if (remindAtRatio >= compactAtRatio) {
-    problems.push(`budget.remindAtRatio (${remindAtRatio}) 应小于 budget.compactAtRatio (${compactAtRatio})，否则不会出现提示`)
+    problems.push(`remindAtRatio (${remindAtRatio}) 应小于 compactAtRatio (${compactAtRatio})，否则不会出现提示`)
   }
   if (config.notesMerge.enabled && (config.notesMerge.provider === undefined || config.notesMerge.model === undefined)) {
-    problems.push('notesMerge.enabled 已开启，但未选择 provider / model；自动合并不会运行')
+    problems.push('notesMerge 已开启，但未选择模型；自动合并不会运行')
   }
   return problems
 }

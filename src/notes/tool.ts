@@ -23,7 +23,7 @@ export interface NotesToolDeps {
 }
 
 /** 按 stateRoot 复用 NotesStore（同一工作区共用一把进程内锁）。 */
-export function createStoreCache(maxFileBytes: number): (identity: TeamIdentity) => NotesStore {
+export function createStoreCache(maxFileBytes: () => number): (identity: TeamIdentity) => NotesStore {
   const stores = new Map<string, NotesStore>()
   return (identity) => {
     const root = notesRootOf(identity.stateRoot)

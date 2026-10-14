@@ -36,11 +36,16 @@ export function countLines(text: string): number {
 export class NotesStore {
   private readonly locks = new Map<string, Promise<unknown>>()
   readonly root: string
-  readonly maxFileBytes: number
+  private readonly limit: () => number
 
-  constructor(root: string, maxFileBytes: number) {
+  /** @param maxFileBytes 单文件上限；传函数时每次写入读取当下值（设置页可即时修改）。 */
+  constructor(root: string, maxFileBytes: number | (() => number)) {
     this.root = root
-    this.maxFileBytes = maxFileBytes
+    this.limit = typeof maxFileBytes === 'function' ? maxFileBytes : () => maxFileBytes
+  }
+
+  get maxFileBytes(): number {
+    return this.limit()
   }
 
   private abs(path: string): string {

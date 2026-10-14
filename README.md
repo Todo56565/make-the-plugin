@@ -69,3 +69,13 @@ DSH 会话文件默认是 zstd 压缩（不是加密）。若想降低 history �
 ## 许可
 
 待定。
+
+## 安装与设置（开发版）
+
+```bash
+pnpm install && pnpm build          # 生成 lib/（含浏览器端 lib/client.js）
+dsh plugin --profile web add file:/path/to/make-the-plugin
+dsh web
+```
+
+设置入口：插件 → dsh-token-budget → 组件行的「配置」。模型为下拉选择（提供方 → 模型 → 推理强度），保存后写入 profile 的 `cordis.patch.yml`。数值与笔记合并即时生效；团队笔记 / 历史工具 / context_remaining 三个开关需重启 DSH 后生效。

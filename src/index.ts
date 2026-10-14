@@ -17,7 +17,7 @@ import type { GenerateOptions } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
-import { Config, validateConfig } from './config.ts'
+import { Config, refreshSettings, toSettings, validateConfig, type Settings } from './config.ts'
 import { TeamDirectory, isTeamEvent } from './team/directory.ts'
 import { registerWindowCounter, windowOf } from './window/counter.ts'
 import { bucketOf, usageOf } from './budget/usage.ts'
@@ -37,9 +37,16 @@ export const inject = ['systemPrompt', 'tools', 'tokenMeter', 'sessionProjection
 /** 预算提示 context 的顺序：排在 SUBAGENT_DELEGATION(120) 之后。 */
 const BUDGET_CONTEXT_ORDER = 130
 
-export function apply(ctx: Context, config: Config): void {
+export function apply(ctx: Context, raw: Config): void {
+  const config = toSettings(raw)
   const logger = ctx.logger('dsh-token-budget')
   for (const problem of validateConfig(config)) logger.warn(problem)
+  // 设置页保存 ⇒ 宿主 volatile HMR，不重启插件：原地刷新数值配置。
+  // 能力开关（notes / history / contextTool）决定 apply 时是否注册工具与 section，需重启 DSH 后生效。
+  ctx.on('loader/volatile-update', () => {
+    refreshSettings(config, raw)
+    for (const problem of validateConfig(config)) logger.warn(problem)
+  })
 
   const teams = new TeamDirectory(config.stateDir, message => logger.warn(message))
   const gate = new CompactionGate()
@@ -114,8 +121,8 @@ export function apply(ctx: Context, config: Config): void {
 
   // ── notes：工具 + 稳定指针 ──
   if (config.notes) {
-    const storeFor = createStoreCache(config.notesOptions.maxFileBytes)
-    if (config.notesMerge.enabled) registerNotesMerge(ctx, config, storeFor, logger)
+    const storeFor = createStoreCache(() => config.notesOptions.maxFileBytes)
+    registerNotesMerge(ctx, config, storeFor, logger)
     ctx.effect(() => registerTeamNotesTool(ctx, {
       identityOf: agent => teams.identityOf(agent),
       storeFor,
@@ -175,19 +182,19 @@ export function apply(ctx: Context, config: Config): void {
 /** 合并单次调用超时。 */
 const MERGE_TIMEOUT_MS = 120_000
 
-/** notesMerge：成员任务完成时，把其笔记合并进 workspace.md。 */
+/** notesMerge：成员任务完成时，把其笔记合并进 workspace.md（开关与模型即时生效）。 */
 function registerNotesMerge(
   ctx: Context,
-  config: Config,
+  config: Settings,
   storeFor: ReturnType<typeof createStoreCache>,
   logger: ReturnType<Context['logger']>,
 ): void {
-  const { provider, model, reasoningEffort } = config.notesMerge
-  if (provider === undefined || model === undefined) return
   const lifetime = new AbortController()
   ctx.effect(() => () => lifetime.abort(), 'dsh-token-budget: notes merge lifetime')
 
   const generate: Generate = async (system, prompt, signal) => {
+    const { provider, model, reasoningEffort } = config.notesMerge
+    if (provider === undefined || model === undefined) throw new Error('未选择合并模型')
     const llm = ctx.get('llm')
     if (llm === undefined) throw new Error('宿主未提供 llm 服务')
     const options: GenerateOptions = {
@@ -216,6 +223,8 @@ function registerNotesMerge(
 
   ctx.on('session/event', (session, event) => {
     if (!calls.handle(session.id, event.type, (event as { data?: unknown }).data)) return
+    // 关闭时仍要更新快照，否则开启瞬间会把关闭期间完成的任务当成新完成
+    const enabled = config.notesMerge.enabled && config.notesMerge.model !== undefined
     const stateRoot = stateRootOf(session.header.cwd, config.stateDir)
     let teams
     try {
@@ -224,7 +233,9 @@ function registerNotesMerge(
       logger.warn(`笔记合并：读取团队状态失败（${stateRoot}）：${String(error)}`)
       return
     }
-    for (const { team, task } of tracker.observe(stateRoot, teams)) {
+    const completed = tracker.observe(stateRoot, teams)
+    if (!enabled) return
+    for (const { team, task } of completed) {
       const memberName = task.assignee!
       const fileKey = sanitizeKey(memberName)
       const run = async () => {
