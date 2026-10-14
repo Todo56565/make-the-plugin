@@ -56,7 +56,7 @@
   2. **按窗口刷新，不按步刷新**：hint（任务 id + 标题 + 笔记元数据）走 `systemPrompt.context` 运行时上下文，只在窗口编号变化时重算（设计:325、:415；缓存分支 B，设计:413）。system section 只放每会话固定的笔记指针（设计:324）。理由：每步都变的值放进 system section 会改写 system 头，放进 context 会每次追加一份完整快照（设计:232）；而且工具或 section 的增删会迫使开新 request series（设计:135）。
   3. **attempt_id 放进换窗交接模板**，从 `.agent-teams` 磁盘状态读，不依赖模型记忆（`04-handoff-design.md` §4.1）。
   4. 压缩是否发生**不回传**主会话（设计:403）。
-- **仍可向上游提的**：成员规则 1 加一句「丢失 attempt_id 时调 claim_task 取回」；补一个成员侧 `compactNow` 的验证用例，对应 `docs/progressive-loading.md` 的队长用例。dsh-token-budget 一侧的对应验证是 PoC-8（设计:392）和 07 的 e2e 项。
+- **仍可向上游提的**：成员规则 1 加一句「丢失 attempt_id 时调 claim_task 取回」；补一个成员侧 `compactNow` 的验证用例，对应 `docs/progressive-loading.md` 的队长用例。dsh-token-budget 一侧的对应验证是 PoC-8（设计:392）和 04 的 e2e 项。
 - **成本**：插件侧已在实现计划内；上游侧很低。
 
 ### P1：可选任务级 worktree 隔离（超越 CC，非看齐）
