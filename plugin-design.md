@@ -138,11 +138,15 @@ interface Config {
 
 **DSH 里「换窗」= 摘要压缩**：没有 Codex 那种不做摘要、直接开新窗口的路径（`临时记录.md` §五）。所以 45% 的含义是「让 compaction-basic 在 `P ≥ 0.45 × W` 时自动压缩」。
 
-**本插件自己触发不了**：
+**更正（2026-10-14）**：原先认为本插件触发不了压缩，依据是「宿主层拿不到 `ctx.compaction`」。社区调研发现官方通道 `ctx.agentPresets.serviceFor(agent, 'compaction')` 可按 agent 取到 preset 内的压缩引擎（`preset/agent-preset-registry/src/index.ts:319-327`；dsh-session-manager 即用此通道改阈值，`community/dsh-session-manager/src/index.ts:337-357`）。拿到引擎后的公共接口：
 
-1. `ctx.compaction` 只存在于 preset 的 `isolate: { compaction: true }` 组内，宿主层插件拿不到（§3.2）
-2. 即便拿到，`compactNow()` 要求 agent 空闲，否则抛 `busy`（`command-compact/src/index.ts` `case 'busy'`「the agent is not idle」）⇒ 长 turn 中途无法手动压缩
-3. 自动压缩只由 compaction-basic 自己在 `agent/pre-step` 里按 `thresholdRatio` 判定（`compaction-basic/src/index.ts:158-176` `compactIfNeeded(agent, 'pressure', signal)`）
+- `compactNow` 要求 agent 空闲 ⇒ 长 turn 中不可用
+- `compactIfNeeded(agent, 'context-overflow', signal)` 是公共抽象方法（`compaction/src/index.ts:124-140`），但 basic 实现在 overflow 分支以 `retainTokens = 0` 选范围（`compaction-basic/src/index.ts:294-301`、`region.ts:117-121`）⇒ **不保留任何最近原文**，过猛
+- `compactRegion(start, end, agent, signal)` 是公共抽象方法（`compaction/src/index.ts:168-190`），范围由调用方给 ⇒ 可按常规保留比例自己算范围
+
+社区插件还有一种做法：直接改共享引擎的 `engine.config.thresholdRatio`（dsh-session-manager）。但 preset 修订被所有选用它的 agent 共享（`editing-cordis-compositions/SKILL.md`「Preset revisions are eagerly activated once and shared」），改了就作用于全部会话，且写的是 `readonly` 字段，不采用。
+
+以下是原分析（方案 A/B/C 仍成立，新增方案 D）：
 
 ⇒ **45% 只能落在 compaction-basic 的 `thresholdRatio: 0.45`**。可选落点：
 
@@ -151,6 +155,8 @@ interface Config {
 | **A（用户已选，v1）** | 在 DSH「Agent presets」设置页把 standard preset 内 `compaction-basic` 的 `thresholdRatio` 改为 0.45（页面保存会写 profile 的 preset 覆盖，`bundle/web-app/README.md:89`） | ① **作用于该 preset 的所有会话**，不只团队会话；② 45% 存在两处（preset 与本插件 `compactAtRatio`），要手动保持一致；③ preset 覆盖会冻结整份插件列表，DSH 升级 standard 时需重做（§14.1 已踩） |
 | B | 本插件 bundle 再插入一个**自带 preset**（如 `team-budget`），内容 = standard + `thresholdRatio` 取本插件配置；团队任务选这个 preset | 45% 只有一处；但要复制整份 standard 插件列表，上游一改就漂移；队长/成员是否继承 preset 需 PoC |
 | C | `modelPolicies` 按模型设 0.45（`compaction-basic/README.md:75`），给成员单独用一个模型路由 | 只有成员与队长用不同模型时才能区分团队会话 |
+
+| **D（新，待用户确认）** | 宿主层 `agent/pre-step`：仅对团队会话、`P / W ≥ compactAtRatio` 时，`serviceFor(agent,'compaction').compactRegion(...)`，范围按 compaction-basic 同法计算并保留最近 `retainRatio` 原文 | 45% 只配一处、只作用于团队会话、不改全局配置；代价：要复刻范围选择（或依赖 `@deepseek-ai/dsh-compaction-basic` 导出的 `selectCompactableRange`，版本耦合）；与 compaction-basic 自己的 pre-step 并发需靠持久锁（`compactRegion` 在压缩进行中会抛错）；需 PoC |
 
 触发点公式是 `floor(min(W × thresholdRatio, W − O − headroomTokens))`（`README.md:62`）：本机 `W = 1,000,000`、`O = 200,000`、`B = 65,536` ⇒ `min(450,000, 734,464) = 450,000`，**45% 起作用**；小窗口路由（如 128k）上 `W − O − B` 可能先于 45% 生效，届时实际触发点更早，插件提示文本里的「45%」会偏。
 
@@ -185,7 +191,7 @@ interface Config {
 
 | 扩展点 | 原因 | 锚点 |
 |---|---|---|
-| `ctx.compaction` | web profile 下宿主层 `compaction-basic` 行 `disabled: true`，真实实例在 preset 的 `isolate: { compaction: true }` 组里；宿主层插件 inject 它会**永远挂起** | `web-app/cordis.patch.yml:527-528`、`presets/standard.patch.yml:66-71`；`compaction/src/index.ts:111-119`「Load one implementation per context」 |
+| `inject: ['compaction']` | web profile 下宿主层 `compaction-basic` 行 `disabled: true`，真实实例在 preset 的 `isolate: { compaction: true }` 组里；宿主层插件 inject 它会**永远挂起**。**更正（2026-10-14 社区调研）**：按 agent 取 preset 内服务有官方通道 `ctx.agentPresets.serviceFor(agent, 'compaction')`（`preset/agent-preset-registry/src/index.ts:319-327`「Read a service supplied inside an Agent's isolated preset group」），见 §2.4 方案 D | `web-app/cordis.patch.yml:527-528`、`presets/standard.patch.yml:66-71`；`compaction/src/index.ts:111-119`「Load one implementation per context」 |
 | 压缩专用 ctx 事件 | 宿主在 `Events` 上只声明了 `compaction/summary-error`；`compaction/start` / `summary` / `end` / `prune` 是**会话日志事件**（log-only） | `compaction/src/index.ts:88-107`、`compaction/src/types.ts:17-90` |
 | `session.ownEvents()` / `snapshotEvents()` / `eventAt()` | 宿主标为 `@deprecated`：「new calls are prohibited」 | `packages/core/session/src/index.ts:706-742` |
 | developer 角色通道 | DSH 没有；对等物是 `systemPrompt.context()` 的 user 角色快照 | `system-prompt/src/index.ts:78` |
@@ -324,7 +330,20 @@ section / context 的 `text()` 对无团队会话返回空串；队长建团后�
 | 与压缩交互 | 纯拉取，无注入，压缩无影响；能力说明放在 notes 同一条稳定 section 里（或 history 自己的稳定 section，二者择一以免多一个 section） |
 | 失败回退 | `team.json` 解析失败 ⇒ 返回错误与路径，不抛到组装层；单个信箱坏行 ⇒ 跳过并在结果里计数 |
 
-**不在 v1 范围**：本会话被压缩掉的原始对话（只能经已弃用的 `eventAt/snapshotEvents` 或 `session-query` 读取），见 §7-8。
+### 4.4 本会话先前窗口原文（只读 `history.*` 等价工具，用户 2026-10-14 确认需要）
+
+详见 `context-compare/community-plugins-survey.md`。设计要点（建议，待确认）：
+
+| 项 | 设计 |
+|---|---|
+| 读取源 | `ctx.sessions.flush(session)` 后 `ctx.sessionPersistence.open(id, 'read').read(offset, count)` 分页读取（`session-persistence/src/index.ts:154-167` 只读句柄不抢写锁；`handle.ts:73-83`）；这是宿主弃用说明指定的替代路径。社区 `dsh-compaction-scroll` 同法（`src/log.js:18-34`）。persistence 不可用时退到 `sessionQuery.readSession`，都没有则返回明确错误 |
+| 不做 | 不用已弃用的 `eventAt/snapshotEvents`；不自建 JSONL 镜像（`session/event` 不重放 fork 继承前缀与 resume 旧日志，`core/session/src/index.ts:550-560`，镜像会缺）；不直接解析 `session.v4.jsonl.zstd`（zstd 帧、校验、撕裂尾、迁移、写锁，定位函数已私有） |
+| 窗口划分 | 窗口 N = 1 + 此前 `compaction/summary` 事件数；被隐藏范围取自 `shadowedSeqs` |
+| 索引 | 只在内存记压缩事件位置；首次调用与 resume 后从存储重建；渲染文本缓存，存储修订变化即失效。不落盘、无第二份用户数据 |
+| 工具 | 照 Codex：`list_windows` / `list_items` / `read_item` / `search_contents`（字面包含、区分大小写）；归入 `history` 开关 |
+| 成员边界 | 成员会话只读 `inheritedEventCount` 之后的事件，不能读到队长继承过来的上下文 |
+| 代价 | 每次读要先 flush，且整份会话文件解码一次（按文件修订缓存，`jsonl/index.ts:753-786`） |
+| 待 PoC | web bundle 下宿主层模型工具在成员 preset 会话中是否可见（Contexera 记录称该 bundle 关闭宿主层模型工具；但 agent-teams 自身工具即为宿主层注册）；0.2.1-alpha.2 上 persistence 只读实测 |
 
 ---
 
@@ -392,7 +411,8 @@ section / context 的 `text()` 对无团队会话返回空串；队长建团后�
 
 ### 待用户确认
 
-- 7-8 的实现路径（待社区插件调研与源码核对后给出）
+- 7-8 实现路径按 §4.4 建议（persistence 只读分页 + 内存索引）是否采纳
+- §2.4 是否从方案 A 改为方案 D（插件只对团队会话在 45% 自行触发压缩）
 
 ---
 
