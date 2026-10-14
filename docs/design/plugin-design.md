@@ -1,6 +1,6 @@
 # dsh-token-budget：dsh-agent-teams 上下文补丁插件设计规格（权威版）
 
-本文件是补丁插件的**唯一权威规格**。`临时记录.md` 保留讨论结论与取证细节，`context-compare/` 保留两轮比对报告；三者冲突时以本文件为准，并应回头修正另外两处。
+本文件是补丁插件的**唯一权威规格**。`临时记录.md` 保留讨论结论与取证细节，`docs/research/context-compare/` 保留两轮比对报告；三者冲突时以本文件为准，并应回头修正另外两处。
 
 **只写当前结论**。证据分级沿用仓库口径：
 
@@ -98,8 +98,9 @@ Loader 语义（`packages/preset/agent-preset/skills/cordis-composition-referenc
 
 ```ts
 export const name = 'dsh-token-budget'
-export const inject = ['systemPrompt', 'tools', 'tokenMeter', 'sessionProjections', 'agents']
-// 绝不能出现 'compaction'：见 §3.2
+export const inject = ['systemPrompt', 'tools', 'tokenMeter', 'sessionProjections', 'agents', 'agentPresets', 'sessions', 'sessionPersistence']
+// agentPresets：方案 D1 经 serviceFor(agent,'compaction') 取压缩引擎（§2.4）；sessions / sessionPersistence：只读 history（§4.4）
+// 绝不能出现 'compaction'：宿主层没有该服务，见 §3.2
 
 interface Config {
   stateDir: string            // 默认 '.agent-teams'；与 agent-teams 行保持一致
@@ -290,7 +291,7 @@ section / context 的 `text()` 对无团队会话返回空串；队长建团后�
 | 与压缩交互 | 压缩后 `P` 骤降 ⇒ 文本回到空串 ⇒ 追加一份「不含预算段」的快照（每窗口一次）；本插件**不触发、不阻止、不改动**压缩 |
 | 失败回退 | `W` 缺失（路由未声明容量）或 `measure` 抛错 ⇒ 空串；工具返回 `remaining: null` 与原因 |
 
-**口径声明**：token-meter 文档明说这些数值是「user-facing reference, not a billing or gating input」（`token-meter/src/projection.ts:25-28`）。t6 曾以「插件自算会与宿主双口径」为由不建议照搬（`context-compare/t6-improvement-plan.md` §3 第 4 行）——本设计直接读宿主同一个 `tokenMeter`，`P` 与 compaction-basic 同源，**只有 `T` 是镜像估算**，这是唯一的口径差，已在工具返回里标 `estimated: true`。【源码 + 推断】
+**口径声明**：token-meter 文档明说这些数值是「user-facing reference, not a billing or gating input」（`token-meter/src/projection.ts:25-28`）。t6 曾以「插件自算会与宿主双口径」为由不建议照搬（`docs/research/context-compare/t6-improvement-plan.md` §3 第 4 行）——本设计直接读宿主同一个 `tokenMeter`，`P` 与 compaction-basic 同源，**只有 `T` 是镜像估算**，这是唯一的口径差，已在工具返回里标 `estimated: true`。【源码 + 推断】
 
 ### 4.2 notes
 
@@ -344,7 +345,7 @@ section / context 的 `text()` 对无团队会话返回空串；队长建团后�
 
 ### 4.4 本会话先前窗口原文（只读 `history.*` 等价工具，用户 2026-10-14 确认需要）
 
-详见 `context-compare/community-plugins-survey.md`。设计要点（用户已采纳，2026-10-14）：
+详见 `docs/research/context-compare/community-plugins-survey.md`。设计要点（用户已采纳，2026-10-14）：
 
 | 项 | 设计 |
 |---|---|
@@ -399,7 +400,7 @@ section / context 的 `text()` 对无团队会话返回空串；队长建团后�
 | 7-6 | 开关 | **两个开关 `notes` / `history`，默认全开**；tokenBudget 由插件管理面板整体启停 |
 | 新 | 阈值 | 已用 **37% 提示**、**45% 强制换窗压缩**，两值可配（落点 §2.4） |
 | 新 | 名称 / 形态 | **dsh-token-budget**（显式与隐式统一），独立 dsh 插件，与社区原版并存；两个开关 = `notes` / `history` |
-| 7-8 | 本会话先前窗口原文 | **需要**：做只读的 `history.*` 等价工具；不依赖已弃用接口与 `session-query`，倾向自建（方案调研中：`context-compare/community-plugins-survey.md`） |
+| 7-8 | 本会话先前窗口原文 | **需要**：做只读的 `history.*` 等价工具；不依赖已弃用接口与 `session-query`，倾向自建（方案调研中：`docs/research/context-compare/community-plugins-survey.md`） |
 | 7-9 | fork 窗口计数 | **不扣除**（同意建议） |
 | §2.4 | 45% 落点 | **方案 D1**（替代 A）：插件仅对团队会话调用 `compactIfNeeded(agent,'context-overflow')` 主动压缩 |
 | 7-8 / §4.4 | 只读历史实现 | **采纳 §4.4**：persistence 只读分页 + 内存索引；zstd→none 作为可选实验配置 |
@@ -434,5 +435,5 @@ section / context 的 `text()` 对无团队会话返回空串；队长建团后�
 
 - **`临时记录.md` §八**：本文件取代其「初步设计」；§八保留为讨论结论，已在原处标注更正。
 - **`临时记录.md` §九**：第 1 条已由源码回答（§3）；第 4 条已与 §5.4.1 对齐；第 2、3 条转为本文件 PoC-8。
-- **`context-compare/t6-improvement-plan.md` §3「不建议照搬」**：t6 当时以「DSH 无窗口 id」「宿主不暴露权威额度」为由不建议做 thread hint 与模型可见额度。用户其后明确要求这三个能力（`临时记录.md` §一）。两条理由的现状：窗口 id ⇒ 本插件以「每 session 压缩周期计数」自建（§4.0.3）；额度 ⇒ 直接读宿主 `tokenMeter`，只有触发点是估算（§4.1）。t6 的其余建议（宿主压缩栈按 agent 降档等）不在本插件范围；顺带：compaction-basic 已有**按模型**（非按 agent）的 `modelPolicies` 覆写（`compaction-basic/README.md:75` `modelPolicies` 行），可作为「给成员用的模型单独设阈值」的现成近似。
-- **引用行号**：`临时记录.md` 与 `context-compare/*` 中 `@deepseek-ai/*/lib/index.js:N` 形式的引用指向安装版 `0.2.0-rc.2` 构建产物。本次已逐条对照源码语义的有：`project()` 改写条件、`buildForkSeed`、压缩事件 log-only、`systemHead`、`COMPACTION_INSTRUCTION`、`CHECKPOINT_PREAMBLE`、session-reference 的 pre-step/readSurface/检查点识别、`dsh-time-context` 注入方式；语义均成立（`COMPACTION_INSTRUCTION` 段数与格式除外，已在 `临时记录.md` §六更正）。
+- **`docs/research/context-compare/t6-improvement-plan.md` §3「不建议照搬」**：t6 当时以「DSH 无窗口 id」「宿主不暴露权威额度」为由不建议做 thread hint 与模型可见额度。用户其后明确要求这三个能力（`临时记录.md` §一）。两条理由的现状：窗口 id ⇒ 本插件以「每 session 压缩周期计数」自建（§4.0.3）；额度 ⇒ 直接读宿主 `tokenMeter`，只有触发点是估算（§4.1）。t6 的其余建议（宿主压缩栈按 agent 降档等）不在本插件范围；顺带：compaction-basic 已有**按模型**（非按 agent）的 `modelPolicies` 覆写（`compaction-basic/README.md:75` `modelPolicies` 行），可作为「给成员用的模型单独设阈值」的现成近似。
+- **引用行号**：`临时记录.md` 与 `docs/research/context-compare/*` 中 `@deepseek-ai/*/lib/index.js:N` 形式的引用指向安装版 `0.2.0-rc.2` 构建产物。本次已逐条对照源码语义的有：`project()` 改写条件、`buildForkSeed`、压缩事件 log-only、`systemHead`、`COMPACTION_INSTRUCTION`、`CHECKPOINT_PREAMBLE`、session-reference 的 pre-step/readSurface/检查点识别、`dsh-time-context` 注入方式；语义均成立（`COMPACTION_INSTRUCTION` 段数与格式除外，已在 `临时记录.md` §六更正）。

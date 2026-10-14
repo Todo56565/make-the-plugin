@@ -1,6 +1,6 @@
 # context-compare — 总入口（两轮）
 
-> **补丁插件的权威设计规格见仓库根 [`../plugin-design.md`](../plugin-design.md)**。本目录是它的取证与比对依据。注意：本目录的 DSH 侧引用基于安装版压缩栈 `0.2.0-rc.2` 构建产物（`lib/index.js:N`），源码 HEAD `d7432673` 已是 `0.2.1-alpha.2`，行号不可互换；`t6` §3「不建议照搬」中关于 thread hint 与模型可见额度的两条，已被用户后续决定与 `plugin-design.md` §8 的说明覆盖。
+> **补丁插件的权威设计规格见[`docs/design/plugin-design.md`](../../design/plugin-design.md)**。本目录是它的取证与比对依据。注意：本目录的 DSH 侧引用基于安装版压缩栈 `0.2.0-rc.2` 构建产物（`lib/index.js:N`），源码 HEAD `d7432673` 已是 `0.2.1-alpha.2`，行号不可互换；`t6` §3「不建议照搬」中关于 thread hint 与模型可见额度的两条，已被用户后续决定与 `plugin-design.md` §8 的说明覆盖。
 
 **课题**：比对 Codex（`openai/codex` @ `a07c8ebd`）与 dsh-agent-teams（`NanmiCoder/dsh-agent-teams` @ `1094b84a` / v0.1.23）+ 其依赖的 DSH 宿主组件（压缩栈 @ `0.2.0-rc.2`）在长程 team 任务中的上下文与记忆机制，产出逐项对照表与 dsh 侧可落地改进建议。
 
