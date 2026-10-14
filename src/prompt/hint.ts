@@ -70,7 +70,7 @@ export function hintText(input: HintInput): string {
     }
     lines.push('需要时用 team_notes 读取。')
   }
-  if (input.history) lines.push('早先窗口中被压缩的原始消息可用 history 工具只读回看。')
+  if (input.history) lines.push('早先窗口中被压缩的原始消息可用 history_search_contents / history_list_items / history_read_item 只读回看。')
   const text = lines.join('\n')
   return Buffer.byteLength(text) > input.maxBytes ? '' : text
 }

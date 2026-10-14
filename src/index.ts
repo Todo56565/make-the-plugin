@@ -28,6 +28,8 @@ import { CompletionTracker, TeamToolCalls, mergeMemberNote, type Generate } from
 import { listTeams, sanitizeKey } from './team/team-file.ts'
 import { stateRootOf } from './team/identity.ts'
 import { FrozenText, NOTES_SECTION_ORDER, notesSectionText } from './prompt/notes-section.ts'
+import { HistorySource } from './history/source.ts'
+import { registerHistoryTools } from './history/tools.ts'
 import { HINT_CONTEXT_ORDER, WindowHintCache, hintText, listNoteMetasSync } from './prompt/hint.ts'
 
 export { Config }
@@ -106,8 +108,7 @@ export function apply(ctx: Context, raw: Config): void {
         return hints.get(agent.id, key, () => hintText({
           identity,
           notes: config.notes,
-          // history 工具尚未实现，暂不在 hint 中提及
-          history: false,
+          history: config.history,
           metas: config.notes ? listNoteMetasSync(identity) : [],
           recentNotes: config.notesOptions.hintRecentNotes,
           maxBytes: config.notesOptions.hintMaxBytes,
@@ -145,6 +146,16 @@ export function apply(ctx: Context, raw: Config): void {
         }
       },
     }), 'dsh-token-budget: notes section')
+  }
+
+  // ── history：只读历史工具（设计 §4.4）──
+  if (config.history) {
+    const source = new HistorySource(() => ctx.get('sessionPersistence'))
+    ctx.effect(() => registerHistoryTools(ctx, {
+      isTeamAgent: agent => teams.identityOf(agent) !== undefined,
+      load: (agent, signal) => source.load(agent.session.id, signal),
+      limits: () => config.historyOptions,
+    }), 'dsh-token-budget: history tools')
   }
 
   // ── token budget：45% 主动压缩（方案 D1）──
