@@ -6,7 +6,7 @@
 - **只作用于团队会话**（队长与成员），普通会话不受影响。
 - 插件整体由 DSH 插件管理面板启停。
 
-> 状态：**实现中。** 已完成包骨架、团队身份解析、窗口计数、token budget（提示 + 45% 主动压缩）、notes（team_notes 工具、稳定指针、窗口 hint、任务完成时自动合并）；history 待实现，尚未在真实 DSH 中 PoC。 权威设计见 [`docs/design/plugin-design.md`](docs/design/plugin-design.md)。
+> 状态：**实现中。** 已完成包骨架、团队身份解析、窗口计数、token budget（提示 + 45% 主动压缩）、notes（team_notes 工具、稳定指针、窗口 hint、任务完成时自动合并）、插件设置页、history 只读工具；context_remaining 待实现。设置页与 persistence 只读读取已在真实 DSH 0.2.0-rc.2 中验证。 权威设计见 [`docs/design/plugin-design.md`](docs/design/plugin-design.md)。
 
 ## 功能
 
@@ -14,7 +14,7 @@
 |---|---|---|
 | token budget | 无（插件本体） | 上下文占用达到 37% 起提示，每 3% 一档（37% / 40% / 43%）；达到 45% 时插件只对团队会话主动压缩（`compactIfNeeded` overflow 分支）。两个阈值均可配置 |
 | notes | `notes`（默认开） | 成员独立笔记 + 团队共享 `workspace.md`；窗口切换后注入笔记指针 hint（任务 id/标题 + 最近 ≤5 个笔记的元数据） |
-| history | `history`（默认开） | 只读工具，读取本会话先前窗口中被压缩隐藏的原始消息：`list_windows` / `list_items` / `read_item` / `search_contents` |
+| history | `history`（默认开） | 只读工具，读取本会话先前窗口中被压缩隐藏的原始消息：`history_list_windows` / `history_list_items` / `history_read_item` / `history_search_contents` |
 
 可选设置 `notesMerge.enabled`（默认关）：开启后由用户选择 DSH 账户中的模型与推理强度，自动合并共享笔记。
 

@@ -211,7 +211,7 @@ export function truncateChars(text: string, max: number): { text: string; trunca
 }
 
 function stamp(time: number): string {
-  return new Date(time).toISOString().replace('T', ' ').slice(0, 19)
+  return `${new Date(time).toISOString().replace('T', ' ').slice(0, 16)}Z`
 }
 
 export function formatWindow(window: HistoryWindow, current: number): string {

@@ -360,6 +360,10 @@ section / context 的 `text()` 对无团队会话返回空串；队长建团后�
 | 降低解码成本（实验） | 会话文件是 **zstd 压缩，不是加密**。DSH 官方提供开关：`session-persistence-jsonl` 行的 `compression: 'zstd' \| 'none'`（`session-persistence-jsonl/src/index.ts:84-87`、`:254`；README 配置表 `compression` 行），设 `none` 后为纯文本 JSONL，省掉解压，但读取仍是整文件扫描 + JSON 解析。该行在宿主 base 层（`bundle/base/cordis.patch.yml:132-135`），覆盖时须重述 `root: !!js dshHomePath('sessions')`；作用于全部会话，已有 zstd 文件切换后的迁移行为需 PoC【推断】。因属全局存储配置，**不放进本插件 bundle**，作为文档里的可选 profile 片段由用户自行开启；插件代码两种格式都经 persistence 读取，无需改动 |
 | 待 PoC | web bundle 下宿主层模型工具在成员 preset 会话中是否可见（Contexera 记录称该 bundle 关闭宿主层模型工具；但 agent-teams 自身工具即为宿主层注册）；0.2.1-alpha.2 上 persistence 只读实测 |
 
+**实现（ba7a385 起）**：`src/history/{model,source,tools}.ts`。工具名用下划线（宿主要求标识符）：`history_list_windows` / `history_list_items` / `history_read_item` / `history_search_contents`，参数照 Codex（window_id、item_id、role、tool_name、recent_first、offset_chars/limit_chars），只读调用方自己的会话、仅团队会话。窗口 id `w<N>`，条目 id `e<seq>`；条目只收 user/assistant/tool/system/developer 消息，推理块不收录，工具调用写成 `[调用 name(args)]`，tool 结果按 callId 回填工具名；被 `compaction/summary.shadowedSeqs` 覆盖的条目标「已隐藏」。上限取 `historyMaxResults` / `historyMaxReadChars` / `historyMaxListItems`（即时生效）。
+
+**persistence 只读 PoC（dsh 0.2.0-rc.2 真实 `session-persistence-jsonl`，zstd）**：写句柄持有写锁且未 flush 时，`persistence.flush()` 后 `stat` + `open(id,'read')` 能读到全部已 append 事件；再 append 后修订变化、缓存失效并读到新事件；读句柄与写锁并存无冲突。成员 preset 会话中宿主层工具可见性仍待在完整团队会话中实测（需模型 API key）。
+
 ---
 
 ## 5. 与 dsh-agent-teams 的耦合面与风险
