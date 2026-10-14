@@ -6,7 +6,7 @@
 - **只作用于团队会话**（队长与成员），普通会话不受影响。
 - 插件整体由 DSH 插件管理面板启停。
 
-> 状态：**实现中。** 已完成包骨架、团队身份解析、窗口计数、token budget（提示 + 45% 主动压缩）；notes 与 history 待实现，尚未在真实 DSH 中 PoC。 权威设计见 [`docs/design/plugin-design.md`](docs/design/plugin-design.md)。
+> 状态：**实现中。** 已完成包骨架、团队身份解析、窗口计数、token budget（提示 + 45% 主动压缩）、notes（team_notes 工具、稳定指针、窗口 hint；自动合并待定）；history 待实现，尚未在真实 DSH 中 PoC。 权威设计见 [`docs/design/plugin-design.md`](docs/design/plugin-design.md)。
 
 ## 功能
 
