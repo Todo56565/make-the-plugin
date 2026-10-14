@@ -11,7 +11,7 @@
 3. **笔记缺失或过期时退回 LLM 摘要**，即调用 preset 引擎原有的 `summarize()`。
 4. **拦截点选 compaction 引擎的 `summarize()` 钩子**：通过 `ctx.agentPresets.serviceFor(agent, 'compaction')` 拿到 preset 引擎，对实例打补丁，按 agent 用 `WeakSet` 判断是否为团队会话。**不选** §7-10 原文设想的 `llm/stream` 中间件加 `COMPACTION_INSTRUCTION` 文本匹配（设计:425-427）。
 
-## 2. 对设计 §7-10 的修订建议
+## 2. 对设计 §7-10 的修订建议（非用户确认，只是其他工作过的agent建议）
 
 | 项 | 现行设计（设计:412、:425-429） | 修订为 |
 |---|---|---|
