@@ -36,17 +36,14 @@ import { HINT_CONTEXT_ORDER, WindowHintCache, hintText, listNoteMetasSync } from
 export { Config }
 export const name = 'dsh-token-budget'
 /**
- * 硬依赖只列插件启动就必须有的服务。
- *
- * `agentPresets`（45% 压缩取引擎）、`sessionPersistence`（history）、`llm`（notesMerge）
- * 是按功能使用的软依赖，在调用时用 `ctx.get()` 读取（cordis 4 文档写明这是「不带 inject 要求的读取」）。
- * cordis 4 的 inject 没有 optional 写法，列进来就会变成整插件的启动前提：
- * 任何一个缺失或尚未就绪，notes 等功能也会跟着全部不激活。
- * 代价是这三个服务没有生命周期绑定，所以每次调用都要重新读取，取不到时要能降级并在之后重试，
- * 见下方 pre-step 中取不到引擎的分支。
- * 设计文档 §2.2 列的是硬 inject，这里的写法与之不同，需要同步更新设计。
+ * 依赖（设计 §2.2）：
+ * - `agentPresets`：方案 D1 经 `serviceFor(agent, 'compaction')` 取 preset 内的压缩引擎（§2.4）
+ * - `sessions` / `sessionPersistence`：history 读取前先 `sessions.flush(session)`，再只读打开日志（§4.4）
+ * - `llm` 只供可选的 notesMerge 使用，在调用时用 `ctx.get('llm')` 读取，不列入 inject：
+ *   cordis 4 的 inject 没有 optional 写法，列进去 llm 就会成为整插件的启动前提
+ * 绝不能出现 'compaction'：宿主层没有该服务（§3.2）
  */
-export const inject = ['systemPrompt', 'tools', 'tokenMeter', 'sessionProjections', 'agents']
+export const inject = ['systemPrompt', 'tools', 'tokenMeter', 'sessionProjections', 'agents', 'agentPresets', 'sessions', 'sessionPersistence']
 
 /** 预算提示 context 的顺序：排在 SUBAGENT_DELEGATION(120) 之后。 */
 const BUDGET_CONTEXT_ORDER = 130
@@ -165,10 +162,10 @@ export function apply(ctx: Context, raw: Config): void {
 
   // ── history：只读历史工具（设计 §4.4）──
   if (config.history) {
-    const source = new HistorySource(() => ctx.get('sessionPersistence'))
+    const source = new HistorySource(() => ctx.sessionPersistence)
     ctx.effect(() => registerHistoryTools(ctx, {
       isTeamAgent: agent => teams.identityOf(agent) !== undefined,
-      load: (agent, signal) => source.load(agent.session.id, signal),
+      load: (agent, signal) => source.load(agent.session.id, signal, () => ctx.sessions.flush(agent.session)),
       limits: () => config.historyOptions,
     }), 'dsh-token-budget: history tools')
   }
@@ -193,11 +190,11 @@ export function apply(ctx: Context, raw: Config): void {
       if (!gate.canAttempt(agent.id, window)) return next()
       const engine = compactionEngineOf(ctx, agent)
       if (engine === undefined) {
-        // agentPresets 是软依赖（见 inject 注释），可能只是暂未就绪：不消耗本窗口的尝试次数，下一步再取。
+        // 该 agent 的 preset 没装压缩，或 serviceFor 暂时取不到：不消耗本窗口的尝试次数，下一步再取。
         // 告警按会话只打一次，避免每步刷屏。
         if (!engineMissingWarned.has(agent.id)) {
           engineMissingWarned.add(agent.id)
-          logger.warn(`会话 ${agent.id} 已用 ${(usage.ratio * 100).toFixed(1)}%，但取不到压缩引擎（agentPresets 未就绪或该 preset 未装压缩），本步跳过主动压缩，之后每步重试`)
+          logger.warn(`会话 ${agent.id} 已用 ${(usage.ratio * 100).toFixed(1)}%，但取不到压缩引擎（该 preset 未装压缩或暂未就绪），本步跳过主动压缩，之后每步重试`)
         }
         return next()
       }

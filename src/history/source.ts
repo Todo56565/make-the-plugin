@@ -1,7 +1,7 @@
 /**
  * 历史读取源（设计 §4.4）：经宿主 `sessionPersistence` 只读句柄分页读取本会话日志。
  *
- * - 先 `persistence.flush()`，让当前写句柄的缓冲事件落盘，读到的才是最新
+ * - 先 `sessions.flush(session)` 只冲刷本会话（设计 §4.4）；未提供时退回 `persistence.flush()` 全量冲刷，读到的才是最新
  * - `open(id, 'read')` 不抢写锁；读完即关
  * - 只看 `inheritedEventCount` 之后的事件（成员读不到队长继承来的上下文）
  * - 按 `stat().revision` 缓存模型：修订不变直接复用；不落盘、不留第二份数据
@@ -25,13 +25,14 @@ export class HistorySource {
     this.persistence = persistence
   }
 
-  async load(sessionId: string, signal?: AbortSignal): Promise<HistoryModel> {
+  /** @param flushSession 冲刷本会话缓冲事件（宿主 `sessions.flush(session)`）；省略时用 `persistence.flush()`。 */
+  async load(sessionId: string, signal?: AbortSignal, flushSession?: () => Promise<unknown>): Promise<HistoryModel> {
     const persistence = this.persistence()
     if (persistence === undefined) throw new Error('宿主未提供 sessionPersistence，历史工具不可用')
     try {
-      await persistence.flush()
+      await (flushSession ?? (() => persistence.flush()))()
     } catch {
-      // 某个其他会话 flush 失败不影响读取本会话已落盘部分
+      // flush 失败不影响读取本会话已落盘部分
     }
     const id = sessionId as Parameters<PersistenceLike['open']>[0]
     const snapshot = await persistence.stat(id, { signal })

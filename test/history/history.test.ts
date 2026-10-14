@@ -77,4 +77,11 @@ test('HistorySource：flush 后只读打开，按修订缓存', async () => {
   await source.load('s1')
   assert.equal(opens, 2)
   await assert.rejects(new HistorySource(() => undefined).load('s1'), /sessionPersistence/)
+  // 提供本会话 flush 时优先用它，不再全量 persistence.flush()
+  let sessionFlushes = 0
+  await source.load('s1', undefined, async () => { sessionFlushes += 1 })
+  assert.equal(sessionFlushes, 1)
+  assert.equal(flushes, 3)
+  // 本会话 flush 失败也照常读取已落盘部分
+  await source.load('s1', undefined, async () => { throw new Error('boom') })
 })

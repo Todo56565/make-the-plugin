@@ -40,10 +40,8 @@ export class CompactionGate {
 
 /** 取 agent 所在 preset 的压缩引擎；无 preset 或未装压缩时返回 undefined。 */
 export function compactionEngineOf(ctx: Context, agent: { ctx: Context }): CompactionEngine | undefined {
-  const registry = ctx.get('agentPresets')
-  if (registry === undefined) return undefined
   try {
-    return registry.serviceFor(agent, 'compaction')
+    return ctx.agentPresets.serviceFor(agent, 'compaction')
   } catch {
     return undefined
   }
