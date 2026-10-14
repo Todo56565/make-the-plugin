@@ -21,12 +21,12 @@
   - 笔记新鲜时用固定交接模板，零模型调用；笔记缺失或过期时退回 LLM 摘要；
   - 拦截点选引擎的 `summarize()` 钩子：用 `serviceFor` 拿到 preset 引擎后打补丁，按 agent 用 `WeakSet` 判断是否为团队会话。不选 `llm/stream` 加 `COMPACTION_INSTRUCTION` 文本匹配。
 - 设计勘误建议：设计:141「DSH 没有不做摘要直接换窗的路径」不完全准确。`summarize()` 是引擎公开的定制钩子（basic `lib/index.js:796,893`），smart-compact 就是靠覆写它实现零模型换窗的（`hoyyang_dsh-smart-compact/src/rollover.ts:376`）。另有几处 D1 之前的旧文字需要同步（设计:177、:381、:385、:421、:254），汇总在 04 §5。
+- 已修（2026-10-15）：`inject` 已补齐 `agentPresets`、`sessions`、`sessionPersistence`（3392547）。`llm` 只供可选的 notesMerge 使用，保持 `ctx.get()` 软依赖，设计 §2.2 已注明（bd00a1e）。
 - 仍待处理（设计未覆盖，或代码与设计不符；已读 `src/` 核实）：
-  - `inject` 缺 `agentPresets`、`sessions`、`sessionPersistence`（设计:101 要求，代码见 `src/index.ts:38`）；`llm` 设计和代码都没声明（`src/index.ts:219`）；
   - 核心路径没有接线测试，PoC-2 到 PoC-9 未做（设计:379-393）；
-  - 压缩失败或取不到引擎时，同一窗口不再重试，只能等 80% 兜底（`src/index.ts:179-187`）；
+  - 压缩调用本身失败（抛错）时，同一窗口不再重试，只能等 80% 兜底（`src/index.ts` pre-step）。取不到引擎的情况已在 2144e6b 改为每步重试；
   - （低优先级）非团队身份只缓存 5 秒（`src/team/directory.ts:31,39-52`）。超时后，下一次组装 prompt 或 pre-step 时会按需同步重扫 `.agent-teams/`，不是定时器。实现与设计:254 有出入，但有理由；建议更新设计文字，或改为按 mtime 失效；
-  - README 没有提示 `allow` 策略要放行本插件工具（设计:372 要求提示）；history 没有 `sessionQuery` 回退（设计:353）；
+  - README 没有提示 `allow` 策略要放行本插件工具（设计:372 要求提示）；history 没有 `sessionQuery` 回退（设计:353；flush 已在 3392547 改为 `sessions.flush(session)`）；
   - 发布形态：private、UNLICENSED、没有 CHANGELOG。
 
 ## 2. dsh-agent-teams 要不要继续向 Claude Code Agent Teams 看齐

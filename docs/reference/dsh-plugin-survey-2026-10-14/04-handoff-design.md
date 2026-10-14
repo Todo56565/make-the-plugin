@@ -88,7 +88,7 @@ compaction-basic 0.2.0-rc.2（`/workspace/work/pk/deepseek-ai-dsh-compaction-bas
 | 3 | 设计:177 | 「`compactAtRatio` 只用于提示文本与 PoC-9 偏差校验；不驱动压缩」 | 这是方案 A 时期的文字。D1 下它驱动主动压缩（`src/index.ts:177,189`），需改写 |
 | 4 | 设计:381 | PoC 前置：「按 §2.4 把 `thresholdRatio` 设为 0.45」 | D1 下宿主阈值保持默认、作兜底（设计:161），前置应只保留「回退 §14 的降阈值覆盖」 |
 | 5 | 设计:421 | 「直接调自动压缩函数是否可行 → 不可行，有三道门」 | 已被设计:143 的更正（`serviceFor` 通道）取代，建议标注「已过时」 |
-| 6 | 设计:101、:385 | inject 列表未含 `llm`；PoC-1 的列表也未含 `agentPresets/sessions/sessionPersistence` | 统一两处；§7-3 笔记合并用 `ctx.llm.stream()`（设计:414），应把 `llm` 列入 |
+| 6 | 设计:101、:385 | inject 列表未含 `llm`；PoC-1 的列表也未含 `agentPresets/sessions/sessionPersistence` | **已处理（bd00a1e）**：PoC-1 改为按 §2.2 的 8 个服务复验。`llm` 有意不列入，保持软依赖，§2.2 已注明 |
 | 7 | 设计:254 | 身份「在 `agent/created` 时解析一次并缓存，由 `agent-teams/*` 事件失效」 | 实现改成按需解析，「非团队」缓存 5 秒，以 `agent_teams_*` 工具返回作失效信号（`src/team/directory.ts:31,39-52`；`src/index.ts:65-68`），建议同步 |
 
 ## 6. 待验证

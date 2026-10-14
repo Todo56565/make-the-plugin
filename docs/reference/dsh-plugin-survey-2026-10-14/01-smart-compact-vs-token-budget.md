@@ -83,8 +83,8 @@
 
 *仍待处理（设计未覆盖，或代码与设计不符）*
 
-- **B1（中，代码与设计不符）`inject` 少声明服务。** 设计:101 要求 `inject` 含 `agentPresets`、`sessions`、`sessionPersistence`；代码只有 `['systemPrompt','tools','tokenMeter','sessionProjections','agents']`（`src/index.ts:38`），却在运行时 `ctx.get` 取 `agentPresets`（`src/budget/compact.ts:43`）、`sessionPersistence`（`src/index.ts:154`）。`llm`（`src/index.ts:219`，供 §7-3 笔记合并的 `ctx.llm.stream()`，设计:414）**设计和代码都没声明**，属设计未覆盖。后果：插件不等这些服务就绪；拿不到引擎时会打 warn，并把该窗口标成「已尝试」（`src/index.ts:181-185`），本窗口不再主动压缩。
-- **B3（小，设计未覆盖）失败后同窗口不重试。** `CompactionGate` 每窗口只尝试一次（`src/budget/compact.ts:17-39`，`src/index.ts:179,183,187`），取不到引擎也计为已尝试。设计 §2.4 没有写失败重试策略；设计:161 说宿主 80% 自动压缩保留作兜底，所以后果是退回 80%，不会卡死。
+- **B1（已修，2026-10-15）`inject` 少声明服务。** 原问题：代码 `inject` 少了设计:101 要求的 `agentPresets`、`sessions`、`sessionPersistence`，只在运行时用 `ctx.get` 读取；取不到引擎时还会把当前窗口标成「已尝试」。修复：3392547 把三个服务补进 inject，`compactionEngineOf` 直接用 `ctx.agentPresets`；2144e6b 改为取不到引擎时不消耗本窗口的尝试次数。`llm` 只供可选的 notesMerge 使用，有意保留 `ctx.get('llm')` 软依赖，因为 cordis 4 的 inject 没有 optional 写法；设计 §2.2 已注明（bd00a1e）。待做：PoC-1 要按 8 个服务复验激活。
+- **B3（小，设计未覆盖）失败后同窗口不重试。** `CompactionGate` 每窗口只尝试一次（`src/budget/compact.ts:17-39`）。取不到引擎的情况已在 2144e6b 改为不计入尝试；`compactIfNeeded` 抛错时仍计为已尝试。设计 §2.4 没有写失败重试策略；设计:161 说宿主 80% 自动压缩保留作兜底，所以后果是退回 80%，不会卡死。
 - **B4（低优先级，性能；代码偏离设计）非团队身份的否定缓存只有 5 秒。** 设计:254 写的是「在 `agent/created` 时解析一次并缓存，由 `agent-teams/*` 事件失效」。实际代码是按需解析，「不是团队」的结果只缓存 5 秒（`src/team/directory.ts:31,39-52`）。
   - **触发条件**：普通会话调用 `identityOf` 时，距上次判定已超过 5 秒。调用点在 prompt section 的 `text()`、pre-step 和工具过滤（`src/index.ts:84,106,141,156,165,175`）。这时会同步 `readdirSync` 一次 `.agent-teams/`，并逐个 `readFileSync` 加 `JSON.parse` 读 `team.json`（`src/team/team-file.ts:94,105-121`）。
   - **不是定时轮询**：会话空闲时不扫描。工作区没有 `.agent-teams/` 时只有一次 ENOENT，代价可以忽略。只有工作区存在多个团队、并且有长跑的普通会话时，才会在每一步多出几次小文件同步读。
@@ -93,9 +93,9 @@
 
 - **B5（后半，文档未落实）`allow` 型工具策略会裁掉本插件工具。** 设计:372 要求「文档必须提示：用 `allow` 策略时把这三个名字加进去」，`README.md` 里没有这条提示。
 - **B6（验证缺口）核心路径没有接线或集成测试，PoC-2 到 PoC-9 未做。** PoC 清单在设计:379-393，属于已规划但未执行。`index.ts` 的接线、45% pre-step 路径、`serviceFor` 取引擎都没有测试，这一点设计没有覆盖。仓库只有 1 个提交，尚未发布。
-- **B7（小，代码与设计不符）history 读取的 flush 与回退。** 设计:353 写「`ctx.sessions.flush(session)` 后只读分页；persistence 不可用时退到 `sessionQuery.readSession`」。代码用的是 `persistence.flush()`（`src/history/source.ts:32`），这一做法已在 0.2.0-rc.2 上做过 PoC（设计:365）。但代码**没有** `sessionQuery` 回退，persistence 缺失时直接报错（`src/history/source.ts:30`）。
+- **B7（小，代码与设计不符）history 读取的 flush 与回退。** 设计:353 写「`ctx.sessions.flush(session)` 后只读分页；persistence 不可用时退到 `sessionQuery.readSession`」。flush 已在 3392547 改为 `sessions.flush(session)`，保留 `persistence.flush()` 兜底。但代码仍**没有** `sessionQuery` 回退，persistence 缺失时直接报错（`src/history/source.ts:30`）。
 - **B8（发布）** `private`、`UNLICENSED`，README「许可：待定」，没有 CHANGELOG。设计没有覆盖发布形态。
-- **B9（设计文档自身需同步）** D1 取代方案 A 之后，设计里有几处旧文字没有更新：设计:177「`compactAtRatio` … 不驱动压缩」（D1 下它驱动压缩，`src/index.ts:177`）；设计:381 PoC 前置「把 `thresholdRatio` 设为 0.45」；设计:421「直接调自动压缩函数 → 不可行」（已被设计:143 的更正取代）；设计:385 PoC-1 的 inject 列表与设计:101 不一致；设计:141「没有不做摘要直接换窗的路径」不完全准确。勘误建议汇总在 `04-handoff-design.md` §5。
+- **B9（设计文档自身需同步）** D1 取代方案 A 之后，设计里有几处旧文字没有更新：设计:177「`compactAtRatio` … 不驱动压缩」（D1 下它驱动压缩，`src/index.ts:177`）；设计:381 PoC 前置「把 `thresholdRatio` 设为 0.45」；设计:421「直接调自动压缩函数 → 不可行」（已被设计:143 的更正取代）；设计:385 PoC-1 的 inject 列表与设计:101 不一致（已在 bd00a1e 同步）；设计:141「没有不做摘要直接换窗的路径」不完全准确。勘误建议汇总在 `04-handoff-design.md` §5。
 - **B10（轻微，文档措辞）** README 兼容性表只列「源码基线 0.2.1-alpha.2」（`README.md:63`），建议补一行「运行宿主 0.2.0-rc.2（跟随 agent-teams 0.1.23 的 supportedHosts，设计:24）」。这不是版本矛盾，见 §1.5。
 
 ### 1.7 评分表（1–5 分，以「agent-teams 0.1.23 + dsh 0.2.0-rc.2」为目标环境打分）
@@ -199,12 +199,12 @@
 
 | # | 条目 | 类型 | 证据 |
 |---|---|---|---|
-| 1 | `inject` 缺 `agentPresets`/`sessions`/`sessionPersistence`；`llm` 设计和代码都没声明（B1） | 代码≠设计 + 设计未覆盖 | `src/index.ts:38`、`:154`、`:219`；`src/budget/compact.ts:43`；设计:101、:414 |
+| 1 | ~~`inject` 缺三个服务（B1）~~ 已修 | 3392547、2144e6b、bd00a1e | 待做：PoC-1 复验 |
 | 2 | 核心路径没有接线或集成测试；PoC-2 到 PoC-9 未做（B6） | 验证缺口 | 设计:379-393；`test/` 下没有 pre-step 或 `serviceFor` 用例 |
-| 3 | 压缩失败、取不到引擎都按「已尝试」处理，同窗口不重试（B3） | 设计未覆盖 | `src/index.ts:179-187`；`src/budget/compact.ts:17-39`；兜底见设计:161 |
+| 3 | 压缩抛错按「已尝试」处理，同窗口不重试（B3；取不到引擎已修） | 设计未覆盖 | `src/index.ts:179-187`；`src/budget/compact.ts:17-39`；兜底见设计:161 |
 | 4 | （低）非团队身份只缓存 5 秒，超时后按需同步重扫（B4） | 代码偏离设计:254（有理由），代价很小但设计没有覆盖 | `src/team/directory.ts:31,39-52`；`src/team/team-file.ts:94,105-121` |
 | 5 | README 没有提示 `allow` 型工具策略要放行三个工具名 | 设计要求未落实 | 设计:372；`README.md` |
-| 6 | history 没有 `sessionQuery` 回退 | 代码≠设计（小） | 设计:353；`src/history/source.ts:30` |
+| 6 | history 没有 `sessionQuery` 回退（flush 已改） | 代码≠设计（小） | 设计:353；`src/history/source.ts:30` |
 | 7 | 发布形态：private、UNLICENSED、1 个提交、没有 CHANGELOG | 设计未覆盖 | `package.json`；`README.md`「许可：待定」 |
 | 8 | 设计文档里 D1 之前的旧文字未同步（设计:141、:177、:381、:385、:421） | 文档勘误 | 汇总于 `04-handoff-design.md` §5 |
 | 9 | README 兼容性表缺「运行宿主 0.2.0-rc.2」一行 | 文档措辞（轻微） | `README.md:63`；设计:24 |
