@@ -83,6 +83,17 @@ export class NotesStore {
     })
   }
 
+  /**
+   * 条件写入：仅当当前内容仍等于 expected（undefined 表示文件不存在）时写入。
+   * 返回 undefined 表示内容已被他人改动，未写入。
+   */
+  writeIf(path: string, expected: string | undefined, content: string): Promise<NoteMeta | undefined> {
+    return this.serialize(path, async () => {
+      if ((await this.read(path)) !== expected) return undefined
+      return this.commit(path, content)
+    })
+  }
+
   /** 列出共享笔记与某团队的全部笔记，按修改时间倒序。 */
   async list(teamId: string): Promise<NoteMeta[]> {
     const paths = [WORKSPACE_NOTE]

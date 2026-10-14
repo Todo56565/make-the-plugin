@@ -406,7 +406,7 @@ section / context 的 `text()` 对无团队会话返回空串；队长建团后�
 | 7-8 / §4.4 | 只读历史实现 | **采纳 §4.4**：persistence 只读分页 + 内存索引；zstd→none 作为可选实验配置 |
 | 7-10 | 摘要拦截 | **v1 不拦截**；之后视 PoC-8 再决定是否加实验开关。用户认为「返回插件自拼的短摘要（任务契约 + 笔记指针）」可能是理想状态 |
 | 7-1 | 缓存论 | **分支 B**：窗口内会变的内容走运行时上下文；system 头只放每会话固定的指针 |
-| 7-3 | 合并层 | 设置开关 `notesMerge.enabled`，**默认关 = 由队长维护** `workspace.md`；开启时用宿主 `ctx.llm.listProviders()` / `listModels(provider)` 列出用户 DSH 账户上的模型与推理强度（`LlmReasoningEffortInfo`，`llm/llm/src/types.ts:369-382`），由用户选择，再经 `ctx.llm.stream()` 调用 |
+| 7-3 | 合并层 | 设置开关 `notesMerge.enabled`，**默认关 = 由队长维护** `workspace.md`；开启时用宿主 `ctx.llm.listProviders()` / `listModels(provider)` 列出用户 DSH 账户上的模型与推理强度（`LlmReasoningEffortInfo`，`llm/llm/src/types.ts:369-382`），由用户选择，再经 `ctx.llm.stream()` 调用。**触发时机（用户确认，2026-10-14）：成员任务完成时**合并该成员笔记。宿主 0.2.0-rc.2 不认识 `agent-teams/*` 事件类型，agent-teams 会跳过写入（`dsh-agent-teams/src/events.ts:45-54`），所以实现改为：每个 `agent_teams_*` 工具调用返回后重读 team.json，与快照比较找出新完成的成员任务；同一工作区排队执行，读 → 调模型 → 条件写入，冲突重试一次，超限或 `max-tokens` 截断则放弃 |
 | 7-4 | hint 来源 | 任务 id + 标题（缓存的 `team.json`）+ 笔记元数据（自己的文件 + 队友最近 ≤5 个） |
 | 新 | 提示档位 | `bucketStep` = **3%**（37/40/43%） |
 | 7-7 / §2.4 | 45% 落点（已被方案 D 取代） | ~~方案 A~~：自动压缩是兜底；本质是把 compaction-basic 的触发配置交给用户在 DSH 现有的 Agent presets 设置页里调，本插件只在提示文本里镜像这个数 |
