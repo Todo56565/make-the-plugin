@@ -11,7 +11,7 @@
 3. **笔记缺失或过期时退回 LLM 摘要**，即调用 preset 引擎原有的 `summarize()`。
 4. **拦截点选 compaction 引擎的 `summarize()` 钩子**：通过 `ctx.agentPresets.serviceFor(agent, 'compaction')` 拿到 preset 引擎，对实例打补丁，按 agent 用 `WeakSet` 判断是否为团队会话。**不选** §7-10 原文设想的 `llm/stream` 中间件加 `COMPACTION_INSTRUCTION` 文本匹配（设计:425-427）。
 
-## 2. 对设计 §7-10 的修订建议（非用户确认，只是其他工作过的agent建议）
+## 2. 对设计 §7-10 的修订建议
 
 | 项 | 现行设计（设计:412、:425-429） | 修订为 |
 |---|---|---|
@@ -89,7 +89,7 @@ compaction-basic 0.2.0-rc.2（`/workspace/work/pk/deepseek-ai-dsh-compaction-bas
 | 4 | 设计:381 | PoC 前置：「按 §2.4 把 `thresholdRatio` 设为 0.45」 | D1 下宿主阈值保持默认、作兜底（设计:161），前置应只保留「回退 §14 的降阈值覆盖」 |
 | 5 | 设计:421 | 「直接调自动压缩函数是否可行 → 不可行，有三道门」 | 已被设计:143 的更正（`serviceFor` 通道）取代，建议标注「已过时」 |
 | 6 | 设计:101、:385 | inject 列表未含 `llm`；PoC-1 的列表也未含 `agentPresets/sessions/sessionPersistence` | 统一两处；§7-3 笔记合并用 `ctx.llm.stream()`（设计:414），应把 `llm` 列入 |
-| 7 | 设计:254 | 身份「在 `agent/created` 时解析一次并缓存，由 `agent-teams/*` 事件失效」 | 实现改成按需解析，「非团队」缓存 5 秒，以 `agent_teams_*` 工具返回作失效信号（`src/team/directory.ts:81,89-103`；`src/index.ts:65-68`），建议同步 |
+| 7 | 设计:254 | 身份「在 `agent/created` 时解析一次并缓存，由 `agent-teams/*` 事件失效」 | 实现改成按需解析，「非团队」缓存 5 秒，以 `agent_teams_*` 工具返回作失效信号（`src/team/directory.ts:31,39-52`；`src/index.ts:65-68`），建议同步 |
 
 ## 6. 待验证
 
