@@ -148,7 +148,7 @@ interface Config {
 | `ctx.on('session/event', (session, event) => …)` | `packages/core/session/src/index.ts:74`；compaction-basic 同款监听 `compaction-basic/src/index.ts:184` | 观察 `compaction/end`、`agent-teams/*` 事件 |
 | `ctx.on('agent/created', …)` | `runtime-types.ts:261`；agent-teams 兼容封装 `dsh-agent-teams/src/harness-compat.ts:110-121` `onAgentReady` | 首次请求前确定会话角色 |
 | `ctx.tools.register(defineTool({...}))` | agent-teams 范例 `dsh-agent-teams/src/tools.ts:923`（`import { defineTool } from '@deepseek-ai/dsh-tools'` `:17`）；工具执行上下文 `exec.agent`（`tools.ts:161-166`） | notes / history / context_remaining 工具 |
-| `agent.ctx.tools.restrict({deny})` | agent-teams 范例 `dsh-agent-teams/src/capabilities.ts:93-95` | 对非团队会话隐藏本插件工具（每 agent 首次请求前定一次） |
+| `agent.ctx.tools.restrict({deny})` | agent-teams 范例 `dsh-agent-teams/src/capabilities.ts:93-95` | v1 **不用**（团队身份在首次请求前可能不可知，见 §4.0.2）；留作 PoC-3 之后的收紧手段 |
 
 ### 3.2 不可用 / 不该用
 
@@ -204,7 +204,18 @@ agent-teams 没有公共 API，本插件**按其磁盘格式自行解析**（只
 
 **失败回退**：任何读/解析异常 ⇒ 当作非团队会话、只打 warn。理由：section/context 的 `text()` 在 `assemble()` 内同步执行，**抛异常会让整步组装失败**（`system-prompt/src/index.ts:658` `typeof section.text === 'function' ? section.text(context) : …`，无 try/catch）。agent-teams 自己也是「damaged state must not disable ordinary conversation」（`capabilities.ts:73-77`）。【源码】
 
-#### 4.0.2 窗口计数
+#### 4.0.2 工具可见性与「后来才成为队长」
+
+工具集按 agent 在首次请求前一次定案（§5-3），而团队身份在那一刻可能还不可知：
+
+- 队长通常是**先普通对话、后来才建团队**的顶层会话；
+- 成员在 `agent/created` 时未必已写进 `team.json`——agent-teams 自己靠进程内的 `isPendingMember(agent)` 补这个时间差（`capabilities.ts:68`，来自 `registerAgentTeamsTools` 的运行时状态，`index.ts:96-100`），本插件拿不到这个内部状态。
+
+因此 **v1 不做 `restrict`**：本插件工具在所有会话可见，无团队时调用返回「当前会话不属于任何 AgentTeams 团队」。代价是非团队会话的工具目录多 2–3 个 schema（`scope: 'all'` 时 `context_remaining` 本就该全局可见）。PoC-3 若证实成员在 `agent/created` 时已在 `team.json` 中，可再对「非成员子代理」启用 `restrict`。
+
+section / context 的 `text()` 对无团队会话返回空串；队长建团后文本变化**一次**（一次 head 改写或一次快照追加），属可接受代价，计入 §7-1 两个分支的成本。
+
+#### 4.0.3 窗口计数
 
 - 注册会话投影 `agentTeamsContextWindow`：`init` = 0，`apply` 遇到 `compaction/end` 且无 `error` 字段时 +1（事件形状 `compaction/src/types.ts:72` `{ compactionId, sourceCommandId?, turn, error? }`）
 - 键 = 会话（投影天然按 session 隔离）⇒ 满足「窗口编号按 session 存」
@@ -264,7 +275,7 @@ agent-teams 没有公共 API，本插件**按其磁盘格式自行解析**（只
 | 不抄契约 | 契约以 `team.json` 为准，不复制进笔记（`临时记录.md` §八 6.2） |
 | 作用域 | 读：同团队所有成员文件 + `workspace.md`（Codex 也允许跨 agent 读，`tools.rs:28`）；写：仅自己的文件 + `workspace.md` |
 | 与压缩交互 | 笔记在磁盘，压缩不碰；指针在 system 头，压缩不碰；hint 在压缩后的下一次准入重算 |
-| 失败回退 | 无团队身份 ⇒ 工具对该会话被 `restrict` 隐藏（§3.1）；目录不可写 ⇒ 工具返回错误，不影响对话 |
+| 失败回退 | 无团队身份 ⇒ 工具返回说明性错误（§4.0.2）；目录不可写 ⇒ 工具返回错误，不影响对话 |
 
 **参照对象要分清**：Codex `notes.*` 是**单 rollout 内**跨窗口私有笔记（`tools.rs:28`「survive context-window transitions within this rollout」）；**跨会话**的是另一套 `memories`。本设计的分层借 memories（每实体一份 + 合并层 + 双重硬上限），注入形态借 notes hint（只给指针）。合并层 `workspace.md` 的**自动合并**（Codex phase2 consolidation）**v1 不做**，由模型显式维护；是否做见 §7-3。
 
@@ -290,7 +301,7 @@ agent-teams 没有公共 API，本插件**按其磁盘格式自行解析**（只
 
 1. **磁盘格式耦合**：本插件依赖 `team.json` 的 `captainSessionId / members[].id / members[].name / tasks[]` 与信箱 JSONL 行格式（`types.ts:263-266`、`:310-333`、`:354-368`）。agent-teams 升级可能改格式 ⇒ `peerDependencies` **精确钉** `@nanmicoder/dsh-agent-teams@0.1.23`，升级时重跑 PoC-3/PoC-5。【源码】
 2. **成员工具策略**：部署方可给成员配 `allow` 型 `toolPolicies`，只保留列出的全局工具（`tool-policies.ts:17-24`、`:54-57`）⇒ 未列入的 `team_notes` / `team_history` / `context_remaining` 会被裁掉。文档必须提示：用 `allow` 策略时把这三个名字加进去。【源码】
-3. **成员工具过滤的时机**：agent-teams 在成员首次请求前用 `restrict` 固定工具集，并强调「Team creation/archive must never rewrite the captain's system/tools prefix」（`capabilities.ts:65-67`、`:93-95`）。本插件的 `restrict` 必须同样在 `agent/created` 时一次定案。【源码】
+3. **成员工具过滤的时机**：agent-teams 在成员首次请求前用 `restrict` 固定工具集，并强调「Team creation/archive must never rewrite the captain's system/tools prefix」（`capabilities.ts:65-67`、`:93-95`）。本插件若日后启用 `restrict`，也必须在 `agent/created` 时一次定案，不得事后增删。【源码】
 4. **前缀稳定是上游的显式设计价值**（事实陈述，不作裁决）：agent-teams 把队长 prompt 一次性快照（`capabilities.ts:57-59`）；宿主 plan-mode 文案写明「The tool catalog stays the same across modes for request-cache stability」（`presets/standard.patch.yml:59`）；压缩摘要请求刻意复用前缀以命中 KV cache（`compaction-basic/src/summarizer.ts:28-31`）。这些是 §7-1 两个分支的背景事实。【源码】
 5. **宿主版本**：agent-teams 0.1.23 不声明支持 `0.2.1-alpha.2`（§0-2）。本插件 PoC 必须在 agent-teams 支持的宿主（推荐 `0.2.0-rc.2`，即本机安装版）上做。【源码】
 
@@ -304,7 +315,7 @@ agent-teams 没有公共 API，本插件**按其磁盘格式自行解析**（只
 |---|---|---|---|
 | PoC-1 | 宿主层插件 `inject: ['systemPrompt','tools','tokenMeter','sessionProjections','agents']` 能激活，不挂起 | `plugin_manager list_plugins` 显示 `agent-teams-context` 已激活（`editing-cordis-compositions/SKILL.md:74`）；故意加入 `'compaction'` 的对照版应**不激活** | §3.2 |
 | PoC-2 | 宿主层注册的 section 与 context 出现在 **preset 会话**与**成员子会话**的请求里 | 解码会话日志：`system/message` 文本含 `agent-teams-context:notes` 段；`source.kind='runtime-context'` 的 user 消息含预算段 | agent-teams usage section 同法工作（强推断） |
-| PoC-3 | 团队身份解析与 agent-teams 判定一致 | 对每个成员/队长会话，本插件解析出的 `(teamId, agentKey)` 与 agent-teams `agent_teams_status` 一致；队长 fork 后代按设计判为非团队 | §4.0.1-5 |
+| PoC-3 | 团队身份解析与 agent-teams 判定一致；成员在 `agent/created` 时是否已写入 `team.json` | 对每个成员/队长会话，本插件解析出的 `(teamId, agentKey)` 与 `agent_teams_status` 一致；队长 fork 后代按设计判为非团队；记录成员 `agent/created` 时刻 `team.json` 中是否已有其 `members[].id` | §4.0.1-5、§4.0.2 |
 | PoC-4 | 预算提示在跨档时出现、压缩后消失，且每窗口快照追加次数 ≤ 档数 + 1 | 低阈值下跑长任务：统计两次 `compaction/end` 之间 `runtime-context` user 消息条数 | §4.1 |
 | PoC-5 | 运行时上下文被压缩替换后自动补回（本插件依赖的核心机制） | 压缩后的第一条请求前出现新的 `runtime-context` 快照，且其 seq 晚于 checkpoint 的 replace 事件 | §3.3-B（源码已读通，缺运行态） |
 | PoC-6 | 笔记写入不影响交付审计 | 某任务通过质量闸门后，成员调用 `team_notes write`；再跑 `agent_teams_status`，审计结论不变 | §4.2.1 |
@@ -359,7 +370,7 @@ v1 = 每成员一份 + `workspace.md` 由模型显式维护。是否加「自动
 
 ### 7-9. fork 子会话的窗口计数是否扣除继承部分
 
-投影重放会把祖先的压缩事件算进 fork 子会话（§4.0.2）。扣除需要知道继承边界（`session/end-seed`，`fork.ts:24`）。仅影响「是否展示编号」，v1 不展示时可后置。
+投影重放会把祖先的压缩事件算进 fork 子会话（§4.0.3）。扣除需要知道继承边界（`session/end-seed`，`fork.ts:24`）。仅影响「是否展示编号」，v1 不展示时可后置。
 
 ---
 
@@ -367,5 +378,5 @@ v1 = 每成员一份 + `workspace.md` 由模型显式维护。是否加「自动
 
 - **`临时记录.md` §八**：本文件取代其「初步设计」；§八保留为讨论结论，已在原处标注更正。
 - **`临时记录.md` §九**：第 1 条已由源码回答（§3）；第 4 条已与 §5.4.1 对齐；第 2、3 条转为本文件 PoC-8。
-- **`context-compare/t6-improvement-plan.md` §3「不建议照搬」**：t6 当时以「DSH 无窗口 id」「宿主不暴露权威额度」为由不建议做 thread hint 与模型可见额度。用户其后明确要求这三个能力（`临时记录.md` §一）。两条理由的现状：窗口 id ⇒ 本插件以「每 session 压缩周期计数」自建（§4.0.2）；额度 ⇒ 直接读宿主 `tokenMeter`，只有触发点是估算（§4.1）。t6 的其余建议（宿主压缩栈按 agent 降档等）不在本插件范围；顺带：compaction-basic 已有**按模型**（非按 agent）的 `modelPolicies` 覆写（`compaction-basic/README.md:75` `modelPolicies` 行），可作为「给成员用的模型单独设阈值」的现成近似。
+- **`context-compare/t6-improvement-plan.md` §3「不建议照搬」**：t6 当时以「DSH 无窗口 id」「宿主不暴露权威额度」为由不建议做 thread hint 与模型可见额度。用户其后明确要求这三个能力（`临时记录.md` §一）。两条理由的现状：窗口 id ⇒ 本插件以「每 session 压缩周期计数」自建（§4.0.3）；额度 ⇒ 直接读宿主 `tokenMeter`，只有触发点是估算（§4.1）。t6 的其余建议（宿主压缩栈按 agent 降档等）不在本插件范围；顺带：compaction-basic 已有**按模型**（非按 agent）的 `modelPolicies` 覆写（`compaction-basic/README.md:75` `modelPolicies` 行），可作为「给成员用的模型单独设阈值」的现成近似。
 - **引用行号**：`临时记录.md` 与 `context-compare/*` 中 `@deepseek-ai/*/lib/index.js:N` 形式的引用指向安装版 `0.2.0-rc.2` 构建产物。本次已逐条对照源码语义的有：`project()` 改写条件、`buildForkSeed`、压缩事件 log-only、`systemHead`、`COMPACTION_INSTRUCTION`、`CHECKPOINT_PREAMBLE`、session-reference 的 pre-step/readSurface/检查点识别、`dsh-time-context` 注入方式；语义均成立（`COMPACTION_INSTRUCTION` 段数与格式除外，已在 `临时记录.md` §六更正）。

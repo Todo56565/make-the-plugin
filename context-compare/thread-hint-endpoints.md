@@ -183,7 +183,7 @@ Recent notes (up to 5, most-recent first):
 | 6 | `notes.list_files_by_prefix` | API（虚拟路径） | ✅ **工作区目录即笔记库**（笔记放工作区，不放 `~/.dsh`） | **更简单**：不需要虚拟路径映射 |
 | 7 | `notes.read_file` | API（虚拟路径） | ✅ `read` 工具（`offset` = 1-based first line；`limit` = 最大行数） | 行号语义可与 `start_line` / `stop_line` 对齐 |
 | 8 | `notes.search_contents` | API（虚拟路径） | ⚠️ 同上，用工作区搜索近似 | 语义一致 |
-| 9 | `notes.append_to_file` | API（虚拟路径，不可并行） | ⚠️ DSH **无专用 append**（`write` 全量重写或 bash 追加近似）。**注意 DSH 的 `edit` / `write` 有 `FS_STALE_VERSION` 版本守卫** | ⚠️ **推断项**，未逐字核 `write` / `edit` 的追加模式。此处 DSH **更强**（有版本守卫），但缺专用 append |
+| 9 | `notes.append_to_file` | API（虚拟路径，不可并行） | ⚠️ DSH **无专用 append**（`write` 全量重写或 bash 追加近似）。**注意 DSH 的 `edit` / `write` 有 `FS_STALE_VERSION` 版本守卫** | ✅ **源码已核**（deepseek-harness d7432673）：`write` 只有 `path` + `content`、全量替换（`packages/fs/tool-fs/src/write.ts:76-82`）。此处 DSH **更强**（有版本守卫），但缺专用 append |
 | 10 | `notes.write_file` | API（虚拟路径，不可并行） | ✅ `write` 工具 | 直接等价 |
 | — | 服务端存储 / 加密参数通道 | 基础设施 | ❌ **无对等物，也不需要**：Codex 的 notes 在**服务端**、路径虚拟、参数走加密头；DSH 的笔记就是**工作区文件** | **不要照搬**：DSH 没有「私有 model-only 状态」这一层，也不需要 |
 
@@ -195,7 +195,7 @@ Recent notes (up to 5, most-recent first):
 |---|---|---|
 | 索引从哪来 | **服务端生成**（它掌握 notes + history 全局视图） | **本地拼**（插件从 `team.json`），或退化成稳定路径指针 |
 | 什么时候刷新 | **换窗重建初始上下文时** | 插件观察 `compaction/*` 自增 → 下次 `assemble()` 渲染自然变 → `project()` 自动改写 |
-| 注入位 | `<context_window>` 消息内部的 `thread_hint` | system prompt 的 section / variable |
+| 注入位 | `<context_window>` 消息内部的 `thread_hint`（role `developer` 的上下文**消息**，不是 system prompt：`core/src/context/token_budget_context.rs:39-49`） | system prompt 的 section / variable，**或** `systemPrompt.context()` 运行时上下文（user 角色快照，压缩替换后自动补回：`agent-loop/src/runtime-context.ts:134-143`）。二选一取决于缓存论裁决，见 `../plugin-design.md` §7-1 |
 | 需要的后端 | 需要（10 个端点） | **不需要** |
 | 粒度 | 窗口级 | 可对齐到窗口级 |
 
@@ -223,7 +223,7 @@ Recent notes (up to 5, most-recent first):
 
 | 半 | DSH 候选内容 | 来源 | 备注 |
 |---|---|---|---|
-| **血统半** | 团队 id / 本会话角色 / `task_id` / `attempt_id` / 窗口序号 | 插件注入的 system prompt variable（**稳定**） | 与 Codex 的 `Agent name` + 三个 window id 同构；窗口序号由插件观察 `compaction/*` 自增 |
+| **血统半** | 团队 id / 本会话角色 / `task_id` / `attempt_id` / 窗口序号 | 团队 id + 角色：system section（会话内稳定）；`attempt_id` 随重派变、窗口序号随压缩变 ⇒ 属**窗口级动态**，注入通道待 `../plugin-design.md` §7-1 裁决 | 与 Codex 的 `Agent name` + 三个 window id 同构；窗口序号由插件观察 `compaction/end` 自增（`../plugin-design.md` §4.0.3） |
 | **索引半** | 未完成任务清单（`team.json` 里 `status != completed` 的 task，给 `id` + `subject` + `assignee`） | 插件读 `team.json` | 对应 Codex 的「最近笔记清单」 |
 | **索引半（续）** | 最近触碰的笔记文件（路径 + 行数 + 字节数） | 插件扫工作区笔记目录 | 对应 `- <path> (N lines, M UTF-8 bytes)` |
 | **指针** | 笔记库路径 + `team.json` 路径 | 稳定字符串 | 让模型能自己拉 |
@@ -241,7 +241,7 @@ Recent notes (up to 5, most-recent first):
 
 | 能力 | Codex 的粒度 | DSH 的粒度 | 是否等价 |
 |---|---|---|---|
-| hint（索引） | **窗口级**：换窗重建初始上下文时取一次 | **可做到窗口级**：插件观察 `compaction/*` 自增 → `assemble()` 渲染变 → `project()` 自动改写 | ✅ 等价，且**不需要后端** |
+| hint（索引） | **窗口级**：换窗重建初始上下文时取一次 | **可做到窗口级**：插件观察 `compaction/end` 自增 → (a) system section 渲染变、`project()` 改写 head，或 (b) 运行时上下文文本变、追加新快照 | ✅ 等价，且**不需要后端**；(a)/(b) 见 `../plugin-design.md` §7-1 |
 | 契约 / developer 指令 | **窗口级**：`build_initial_context_with_world_state` 重渲染（`session/mod.rs:4326-4345`） | **每步**：`assemble()` 每步跑，但**文本不变则零事件**；换窗后由 `contentGeneration` 变化触发改写 | ✅ 等价（DSH 更细，实际只有变化才落事件） |
 | 笔记内容 | **拉取**：9 个工具端点 | **拉取**：读写工具读工作区文件 | ✅ 等价 |
 | 每步动态内容 | Codex **无此机制**（不做每步刷新） | **可做**（消息 append），但推 / 拉在**事件数上中性** | Codex 不给先例；DSH 可自行选择 |
@@ -260,7 +260,7 @@ Recent notes (up to 5, most-recent first):
 | DSH 工作区搜索工具存在 | ✅ `@deepseek-ai/dsh-tool-fs-search` 存在 |
 | DSH `FS_STALE_VERSION` 版本守卫存在 | ✅ 2 处命中 |
 | DSH `archive/` 目录概念存在 | ✅ `capabilities.ts:42` 显式 `continue` 跳过 `archive`；`index.ts:271` 有 `?archived=1` |
-| 第 3 节第 9 行「DSH 无专用 append」 | ⚠️ **推断**（按工具清单推），**未实测** |
+| 第 3 节第 9 行「DSH 无专用 append」 | ✅ **源码已核**：`tool-fs/src/write.ts:76-82` 无追加参数（与 `../临时记录.md` §10.8.7 同步） |
 | hint 内容形态：`Recent notes (up to 5, most-recent first):` + `- <path> (N lines, M UTF-8 bytes)` | ⚠️ **测试夹具原文**（`tests/history_notes_extension.rs:48`），是**间接证据**——它证明客户端接受并期望该形态，**不等于**服务端只会产出该形态 |
 | hint 拼接位：`Agent name` / `First|Current|Previous context window id` + hint，共用 `<context_window>` 标记，`role()=="developer"` | ✅ 源码直证：`core/src/context/token_budget_context.rs:41-73`（`body()` 在 `:58-73`，markers 在 `:50-56`，role 在 `:46-48`） |
 | 四种失败形态（空 / 4001 字节 / 无 `text` / 受限网络不发出请求） | ✅ 源码直证：`tests/history_notes_extension.rs:334-372` |
