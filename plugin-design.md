@@ -168,7 +168,7 @@ interface Config {
 | 风险 | 语义借用「overflow」分支，只影响日志文案（`compaction/start` 事件不含 trigger 字段，`compaction/src/types.ts:24`）；若 preset 换了别的压缩引擎，overflow 行为可能不同 | 范围算错会被 `validateSurfaceRegion` 拒绝；自动压缩须在 open turn 内（`region.ts` `compactRegion: no open turn` 检查），pre-step 中满足 |
 | 与理念 | 符合「换窗 = 只带摘要 + 笔记 + hint，细节用 history 工具回读」 | 可调成同样效果，也可留一点最近原文 |
 
-建议 v1 用 **D1**（与设计理念一致、零范围代码），D2 作为将来需要「保留最近 N% 原文」时的扩展。Codex 本地压缩会保留最近用户原话 ≤ 20,000 token（`codex-rs/core/src/compact.rs:63`）；团队成员的「原话」就是任务契约，已在 `team.json`，且 hint 会带任务 id 与标题，`history` 工具可回读原文，所以不保留最近原文可以接受。【待用户确认】
+**v1 采用 D1**（用户已确认，2026-10-14：与设计理念一致、零范围代码），D2 作为将来需要「保留最近 N% 原文」时的扩展。Codex 本地压缩会保留最近用户原话 ≤ 20,000 token（`codex-rs/core/src/compact.rs:63`）；团队成员的「原话」就是任务契约，已在 `team.json`，且 hint 会带任务 id 与标题，`history` 工具可回读原文，所以不保留最近原文可以接受。
 
 触发点公式是 `floor(min(W × thresholdRatio, W − O − headroomTokens))`（`README.md:62`）：本机 `W = 1,000,000`、`O = 200,000`、`B = 65,536` ⇒ `min(450,000, 734,464) = 450,000`，**45% 起作用**；小窗口路由（如 128k）上 `W − O − B` 可能先于 45% 生效，届时实际触发点更早，插件提示文本里的「45%」会偏。
 
@@ -401,7 +401,7 @@ section / context 的 `text()` 对无团队会话返回空串；队长建团后�
 | 新 | 名称 / 形态 | **dsh-token-budget**（显式与隐式统一），独立 dsh 插件，与社区原版并存；两个开关 = `notes` / `history` |
 | 7-8 | 本会话先前窗口原文 | **需要**：做只读的 `history.*` 等价工具；不依赖已弃用接口与 `session-query`，倾向自建（方案调研中：`context-compare/community-plugins-survey.md`） |
 | 7-9 | fork 窗口计数 | **不扣除**（同意建议） |
-| §2.4 | 45% 落点 | **方案 D**（替代 A）：插件仅对团队会话主动压缩 |
+| §2.4 | 45% 落点 | **方案 D1**（替代 A）：插件仅对团队会话调用 `compactIfNeeded(agent,'context-overflow')` 主动压缩 |
 | 7-8 / §4.4 | 只读历史实现 | **采纳 §4.4**：persistence 只读分页 + 内存索引；zstd→none 作为可选实验配置 |
 | 7-10 | 摘要拦截 | **v1 不拦截**；之后视 PoC-8 再决定是否加实验开关。用户认为「返回插件自拼的短摘要（任务契约 + 笔记指针）」可能是理想状态 |
 | 7-1 | 缓存论 | **分支 B**：窗口内会变的内容走运行时上下文；system 头只放每会话固定的指针 |
@@ -426,7 +426,6 @@ section / context 的 `text()` 对无团队会话返回空串；队长建团后�
 
 ### 待用户确认
 
-- 方案 D 用 D1（`compactIfNeeded` overflow 分支）还是 D2（`compactRegion` 自算范围）
 
 ---
 
