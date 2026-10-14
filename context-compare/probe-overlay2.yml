@@ -1,0 +1,17 @@
+# Probe 2: the profile patch layer cannot reach the preset's nested plugin
+# entries. Can it override the preset DECLARATION row instead?
+#
+# `editing-cordis-compositions` SKILL.md:56 is explicit:
+#   "Override the declaration by its Loader row id instead of inserting. The
+#    override replaces the complete config, so restate id, plugins and every
+#    other field the shipped file carries."
+#
+# If this works, the revertible-threshold plan is: copy the composed
+# preset-standard config, change only the compaction entry's config, and write
+# it back as this override. Using a sentinel here: only `plugins: []` so the
+# dump diff proves reachability without dragging 500 lines through the probe.
+- id: preset-standard
+  name: '@deepseek-ai/dsh-agent-preset'
+  config:
+    id: standard
+    plugins: []

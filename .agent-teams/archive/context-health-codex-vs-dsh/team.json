@@ -1,0 +1,1099 @@
+{
+  "name": "context-health-codex-vs-dsh",
+  "id": "context-health-codex-vs-dsh",
+  "description": "比对 Codex（openai/codex）与 dsh-agent-teams（NanmiCoder/dsh-agent-teams）在长程 team 任务中保持上下文健康的机制，产出逐项对照表 + dsh 侧可落地的改进建议。输入：视频报告《Codex 上下文压缩：从截断、摘要到 Token Budget》(BV1WpYT6jEx7)、两仓库本地克隆 I:\\VMsShare\\_src-compare\\{codex,dsh-agent-teams}、以及本机 DSH harness 实际安装。输出目录 I:\\VMsShare\\context-compare。",
+  "captainSessionId": "session-6680b4d6-e2c4-4400-a087-754f1238cb5c",
+  "createdAt": 1791729561340,
+  "members": [
+    {
+      "id": "a3554bee-1b87-4db8-9b7e-6fc8bda7ee52",
+      "name": "codex-researcher",
+      "role": "researcher",
+      "provider": "cc",
+      "model": "deepseek/deepseek-v4.1-flash",
+      "executionPrompt": "你是 Codex 侧上下文机制研究员。只用本地克隆 I:\\VMsShare\\_src-compare\\codex（commit a07c8ebd，2026-10-11），只读不改。每条结论必须给相对仓库根的 POSIX 路径 + 行号，并附最小关键代码片段（<=15 行）。找不到确切实现就如实写 UNVERIFIED，禁止推测补全。",
+      "joinedAt": 1791729568883,
+      "status": "removed"
+    },
+    {
+      "id": "5555841f-4f2e-49c4-b100-cf9f51835249",
+      "name": "dsh-researcher",
+      "role": "researcher",
+      "provider": "cc",
+      "model": "deepseek/deepseek-v4.1-flash",
+      "executionPrompt": "你是 DSH 侧上下文机制研究员，负责 T2 与 T3，均为纯取证，不得修改任何被测代码。证据一律带文件路径 + 行号。dsh-agent-teams 插件自身的机制要与 DSH harness 自身的能力严格分层标注，不得混写。",
+      "joinedAt": 1791729568888,
+      "status": "removed"
+    },
+    {
+      "id": "4c425ec8-3850-4ff2-bacc-92b746bff870",
+      "name": "synthesizer",
+      "role": "engineer",
+      "provider": "cc",
+      "model": "deepseek/deepseek-v4.1-flash",
+      "executionPrompt": "你负责对照表 T4 与定稿 T6。对照表按机制维度组织，禁止按仓库组织。每行结论都要能回溯到 T1/T2/T3 的证据路径。改进建议必须落到具体文件与改法，禁止泛泛而谈。产出只写当前状态，不记录开发阶段或历史决策。",
+      "joinedAt": 1791729568893,
+      "status": "removed"
+    },
+    {
+      "id": "b88f73e4-74f8-4498-b01f-faaeaae8ee1c",
+      "name": "verifier",
+      "role": "reviewer",
+      "provider": "cc",
+      "model": "deepseek/deepseek-v4.1-flash",
+      "executionPrompt": "你是独立核验者，任务是证伪而非复述。抽查对照表中影响结论的断言，回到 I:\\VMsShare\\_src-compare 与 DSH 安装目录逐条复核。发现经不起复核、夸大或归属错误的断言，必须给出错误原文、正确事实、证据路径行号。不要把「看起来合理」当作成立。",
+      "joinedAt": 1791729568897,
+      "status": "removed"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "subject": "Codex 上下文机制取证：压缩触发/截断/交接摘要/保留策略/token budget/notes/history",
+      "description": "在本地克隆 I:\\VMsShare\\_src-compare\\codex（commit a07c8ebd57feedc4cf5dfe854c8e9101de54186b，2026-10-11）中取证 Codex 的上下文健康机制，只读不改。优先模块：codex-rs/core、codex-rs/history、codex-rs/memories、codex-rs/context-fragments、codex-rs/message-history、codex-rs/rollout、codex-rs/thread-store、codex-rs/prompts、codex-rs/state、codex-rs/docs、docs/。需覆盖 10 个维度：\n\n(1) 自动压缩触发条件、发生位置（pre-turn / mid-turn）、以及 config limit 与默认比例取 min 的实际实现。\n(2) 长工具输出截断策略（保留首尾、省略中间）的实际参数与常量名。\n(3) 交接摘要（handoff summary）的 prompt 构造、调用位置、生成后追加的续作说明。\n(4) 压缩之外保留最近用户原话的机制（报告称约 2 万 token）——确认真实常量与作用范围。\n(5) 压缩请求本身超出窗口时的降级处理（丢弃最早历史）。\n(6) 远程/opaque 压缩路径，以及它与文本摘要在代码里的分流方式。\n(7) token budget：是否默认关闭、对应 feature flag / 配置项、get context remaining 类工具、reminder threshold tokens 与 developer reminder 模板。\n(8) 持久笔记（notes）能力、跨窗口 thread hint（报告称上限 4000 字节）的实际实现。\n(9) history 检索接口：history_list_windows / history_list_items / history_search_contents / history_read_item 的真实工具名与参数，以及是否只做包含匹配。\n(10) 文件与 Git 会话为 source of truth 的 harness 级支持（如 AGENTS.md 读取、进度文件约定）。\n\n每条结论必须写 相对仓库根 POSIX 路径 + 行号 + 关键代码片段（<=15 行）。报告与代码不一致时明确指出差异。无法确证的写 UNVERIFIED 并说明找过哪些位置。",
+      "status": "completed",
+      "assignee": "codex-researcher",
+      "dependencies": [],
+      "attempt": 1,
+      "createdAt": 1791729586772,
+      "updatedAt": 1791730125751,
+      "kind": "work",
+      "acceptance": [
+        "文档覆盖下列 10 个维度，每维度至少一条带 路径+行号 的证据",
+        "所有代码片段少于 15 行且与仓库当前内容逐字一致",
+        "无法确证的项明确标注 UNVERIFIED 并列出已检索位置",
+        "视频报告的结论与代码不符处单独列出"
+      ],
+      "deliverables": [
+        "I:\\VMsShare\\context-compare\\codex-context-mechanisms.md"
+      ],
+      "attemptId": "33576b7b-6fda-4ea1-ac1b-bd67fad335db",
+      "reassigning": false,
+      "output": "交付物: I:\\VMsShare\\context-compare\\t1-codex-context-health-evidence.md（978 行 / 51 KB），对 openai/codex @ a07c8ebd（2026-10-11）做只读取证，覆盖任务要求的 10 个维度，每条结论附「相对仓库根 POSIX 路径 + 行号 + <=15 行逐字片段」。\n\n十维要点：\n1. 阈值 = min(model 默认 90% 窗口, config)，实现为 openai_models.rs:529-539 的 std::cmp::min；触发点三处 PreTurn(turn.rs:1304/1316)、MidTurn(turn.rs:609/621)、PostTurn(turn.rs:720，默认关闭)；注意 Total 与 BodyAfterPrefix 两种 scope 对 config 的处理不同（context_window.rs:61-81）。\n2. 长工具输出保留首尾、省略中间；首尾各 50%（utils/string/src/truncate.rs:156 split_budget），默认预算 10 000 字节（models-manager/src/model_info.rs:126），另有 x1.2 序列化余量（output-truncation/src/lib.rs:17-21）。\n3. 交接摘要 prompt = prompts/templates/compact/prompt.md（\"Create a handoff summary for another LLM...\"），上传时包成 SUMMARY_PREFIX + 摘要（compact.rs:383），SUMMARY_PREFIX 是加在摘要前面的\"续作说明\"。\n4. 保留最近用户原话的真实常量 = compact.rs:63 `COMPACT_USER_MESSAGE_MAX_TOKENS: usize = 20_000`，作用域仅本地文本压缩的替换历史；remote v2 是 RETAINED_MESSAGE_TOKEN_BUDGET = 64_000 / 单条 agent 消息 10_000（compact_remote_v2.rs:78-79）。\n5. 压缩请求自身超窗口的降级 = compact.rs:338-350 `history.remove_first_item()` 循环丢弃最早历史，与报告一致。\n6. 分流点 turn.rs:1473；TokenBudget 开启时走无摘要的新窗口重置（turn.rs:1461-1471 -> compact_token_budget.rs:58），provider 支持 V2 时走服务端 opaque compaction（compact_remote_v2.rs:499）。\n7. token_budget feature `default_enabled: false`（features/src/lib.rs:1889-1894）；get_context_remaining 工具存在（get_context_remaining_spec.rs:8 + handler :85-93）但同时被该 flag 门控（spec_plan.rs:1401-1404）；reminder 阈值与模板见 feature_configs.rs:376-383 与 token_budget_context.rs:186-200（role=developer）。\n8. thread hint 上限确为 4000 **字节**（ext/history-notes/src/extension.rs:31）；notes 单文件上限 1 000 000 UTF-8 字节；启用需 token_budget.use_history_notes_extension + OpenAI provider + codex backend 认证。\n9. history 真实工具名是 namespaced 的 history.list_windows / list_items / read_item / search_contents（tools.rs:75-88、:290-292），报告给的 flat 名在本 commit 全域零命中；检索确为 case-sensitive literal substring（tools.rs:181、:213）。\n10. AGENTS.md 有完整 harness 级支持（core/src/agents_md.rs，含 .git 根发现、不越根、untrusted 项目不读、project_doc_max_bytes 预算）；TurnDiff 只走 EventMsg 不进模型上下文（turn.rs:3182-3188）；\"进度文件约定\"无强制实现，标注 UNVERIFIED。\n\n报告结论与代码不符/需限定的部分（§11 共 17 行对照）：\n- 不一致：history flat 工具名（应为 namespaced）；\"压缩后追加续作说明\"未找到（只有 SUMMARY_PREFIX 前置）。\n- 需限定范围：20k token 只对本地压缩成立（remote v2 为 64k/10k）；config 与默认比例的 min 在 BodyAfterPrefix scope 下不生效；get_context_remaining 同时被 feature flag 门控。\n- 报告漏项：post-turn 压缩（阈值默认 0 关闭）、new_context_window 工具、压缩完成后的用户告警。\n\n6 项 UNVERIFIED 均在 §12 列出结论 + 已检索的具体文件与 grep 关键词。",
+      "changedPaths": [
+        "context-compare/t1-codex-context-health-evidence.md"
+      ],
+      "acceptanceResults": [
+        {
+          "criterion": "文档覆盖下列 10 个维度，每维度至少一条带 路径+行号 的证据",
+          "status": "passed",
+          "evidence": "I:\\VMsShare\\context-compare\\t1-codex-context-health-evidence.md 第 1-10 章逐维取证，每维 2-5 条 `codex-rs/...:行号` 证据；§13 另附 13 个关键常量速查表。10 维全部有证据，无空缺维度。"
+        },
+        {
+          "criterion": "所有代码片段少于 15 行且与仓库当前内容逐字一致",
+          "status": "passed",
+          "evidence": "所有引用片段均 <=15 行（最长两段各 14 行：openai_models.rs:529-539、utils/string/truncate.rs 的 split_budget 上下文）。片段用 read 工具逐字取自工作区文件；两次自查发现的错误行号（history-notes/src/tools.rs 的 HistorySearchContents 参数块、NotesSearchContents 描述行）已用逐行输出核对后修正为 :176-190 / :181 / :213 / :132。"
+        },
+        {
+          "criterion": "无法确证的项明确标注 UNVERIFIED 并列出已检索位置",
+          "status": "passed",
+          "evidence": "§12 列出 6 项 UNVERIFIED，每项写明结论 + 已检索的具体文件与 grep 关键词：压缩后续作说明（compact*.rs 全文、prompts/templates/compact、全域 grep 4 个短语）、history flat 工具名（全域零命中，列出 ext/history-notes、rollout、thread-store、message-history、history 五个目录）、进度文件约定（prompts/templates、core/src、codex-rs/docs、docs）、报告所依据的 commit、memories 模块语义边界、逐工具 truncation 预算。§3.4、§9.5、§10.3 正文内亦就地标注 UNVERIFIED。"
+        },
+        {
+          "criterion": "视频报告的结论与代码不符处单独列出",
+          "status": "passed",
+          "evidence": "§11 给出 17 行逐条对照表（D1-D17），每行含「报告说法 / 代码事实含路径行号 / 判定」。明确不一致 2 条：D11 history flat 工具名 vs 实际 namespaced `history.list_windows` 等；D13 压缩后追加的续作说明未找到。部分一致并需限定范围 3 条：D2（BodyAfterPrefix scope 不做 min）、D4（20k 仅本地路径，remote v2 为 64k/10k）、D8（get_context_remaining 同时被 TokenBudget flag 门控）。报告漏项 3 条：D15 post-turn 压缩、D16 new_context_window 工具、D17 压缩完成告警。"
+        }
+      ],
+      "commandsRun": [
+        {
+          "command": "git -C I:\\VMsShare\\_src-compare\\codex log -1 --format='%H %cI %s'",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "输出 a07c8ebd57feedc4cf5dfe854c8e9101de54186b 2026-10-11T12:38:29Z Handle broken pipes gracefully in plugin list output (#53109)，确认取证基线 commit 与任务描述一致。"
+        },
+        {
+          "command": "git grep -n \"fn auto_compact_token_limit\" -- codex-rs/protocol/src/openai_models.rs",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "命中 :529，与报告 §1.1 引用一致；同时验证 `git grep` 在本仓库可用，§14 复现命令有效。"
+        },
+        {
+          "command": "Get-Content codex-rs\\ext\\history-notes\\src\\tools.rs | Select-Object -Skip 129 -First 32 / -Skip 178 -First 50",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "逐行核对后修正两处行号：HistorySearchContents 参数块实为 :176-190（query 描述 :181）、NotesSearchContents 描述 :132 且其 query 描述 :213。修正已写入报告 §9.2/§9.3。"
+        },
+        {
+          "command": "Get-Content I:\\VMsShare\\context-compare\\t1-codex-context-health-evidence.md（行数/字节/标题结构检查）",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "978 行 / 51254 字节；标题结构含第 1-10 章（10 个必需维度）+ §11 差异清单 + §12 UNVERIFIED + §13 常量速查 + §14 复现命令。"
+        }
+      ]
+    },
+    {
+      "id": "t2",
+      "subject": "dsh-agent-teams 上下文机制取证：子代理生命周期/任务契约/结果投递/记忆文件",
+      "description": "在本地克隆 I:\\VMsShare\\_src-compare\\dsh-agent-teams（commit 1094b84a，v0.1.23，只读不改）中取证这个 DSH 插件如何管理长程 team 任务的上下文。需查清：\n\n(1) member/子代理的会话生命周期：何时创建、何时结束、结束后上下文是否保留（durable session 的真实实现）。\n(2) 队长与成员之间传递的内容形态：消息、任务描述、结果投递各带哪些字段，是否存在汇总或压缩，投递结果是全文还是摘要。\n(3) 任务契约（objective/acceptance/verify/inScope/findings 等）在上下文中的作用：哪些字段写入状态文件、哪些跨轮次持久化。\n(4) 状态与计划存储：.agent-teams 或同类目录的文件结构、哪些字段持久化、是否充当 working memory。\n(5) 成员被唤醒时看到的上下文边界：新 turn 是否携带全部历史，是否有截断或裁剪逻辑。\n(6) 该插件是否自行实现压缩、摘要、笔记、历史检索；若全部依赖 DSH harness，明确写清依赖边界。\n\n每条结论写 相对仓库根 POSIX 路径 + 行号 + 关键代码片段（<=15 行）。严格区分插件自身机制与 DSH harness 提供的能力，不得混写。",
+      "status": "completed",
+      "assignee": "dsh-researcher",
+      "dependencies": [],
+      "attempt": 1,
+      "createdAt": 1791729586782,
+      "updatedAt": 1791731632345,
+      "kind": "work",
+      "acceptance": [
+        "覆盖下列 6 个维度，每维度至少一条带 路径+行号 的证据",
+        "明确给出 插件自身机制 vs DSH harness 能力 的边界结论",
+        "所有代码片段少于 15 行且与仓库当前内容逐字一致",
+        "未实现的机制明确写 未实现，不臆测"
+      ],
+      "deliverables": [
+        "I:\\VMsShare\\context-compare\\dsh-agent-teams-context.md"
+      ],
+      "attemptId": "caabddb1-3b45-4a66-b8d9-0cf01c2ef54b",
+      "reassigning": false,
+      "output": "交付物：I:\\VMsShare\\context-compare\\t2-dsh-agent-teams-context-mechanisms.md（含 43 段逐字代码证据 + 3 段仓库文档引用，全部带 `<!-- src: 路径:起始-结束 -->` 标记，可用 check-t2-evidence.mjs 复核，日志 t2-snippet-verification.log）。\n\n核心结论（六维全覆盖）：\n(1) 生命周期：成员 = captain 的 durable continuable 子代理（src/members.ts:907-942 经 ctx.subagents.startContinuable 建立，member.id = start.childId，写入 src/types.ts:262-266 的 TeamMember.id）。结束只做“投递拒绝”：interrupt 保留 session，src/members.ts:1000-1016 用 retired-members 名单在投递边界阻止冷启动，同时有意保留 catalog 行以便 captain 仍能读历史 transcript。故“结束后上下文保留”= 是，且由 harness session 存储承担。\n(2) 传递形态：任务派发是【全文】字段化提示（src/scheduler.ts:210-269），queue 走独立 FIFO turn、steer 走最近 step 边界（src/scheduler.ts:450-452；src/members.ts:966-972；harness 原语 src/harness-compat.ts:191-205）。结果投递为全文 content（src/tools.ts:2204/2244），provenance 仅前置标签（src/mailbox.ts:22-25）；成员侧唯一过滤是代际失效去重 + ack（src/mailbox.ts:158-175），非摘要。\n(3) 任务契约：objective/inScope/outOfScope/acceptance/verify/kind/round/findings/acceptanceResults/commandsRun/changedPaths/revisions 全部持久化于 team.json（src/types.ts:137-160,162-206），并每轮重新注入提示（src/scheduler.ts:225-241）；重试时契约保留、结果清空（src/state.ts:171-179）。\n(4) 存储：<workspace>/.agent-teams/<teamId>/{team.json,inbox/<key>.jsonl}（src/state.ts:1-14，默认值 src/index.ts:195）+ state root 级 retired-members.json（src/state.ts:55-56）；归档而非删除（src/state.ts:1152-1157）；被显式定义为权威源 truth source（src/snapshot.ts:1-9）。\n(5) 唤醒边界：新 turn 续用同一 durable session 的完整历史，插件只做准入判定（src/members.ts:644-654），不裁剪对话历史；插件自有裁剪全部是确定性字符串截断（2000/12000 字符 dependency 预算且超限丢最旧 src/scheduler.ts:40-43,163-171；status 300/240/200/120/400 字符 src/tools.ts:2361,2398,2842,2868,2835；persona protocol 400 字符 src/members.ts:30-31,776-780），且统一带 [truncated] 标记。\n(6) 压缩/摘要/笔记/检索：插件侧【全部未实现】（src/** 无 compact/compaction 调用，无 @deepseek-ai/dsh-compaction* 依赖；对 harness session 事件只读 descriptor 与 step/start 判定，见 src/harness-compat.ts:122-129）。压缩与工具结果裁剪完全属 host：本机安装 dsh-compaction / dsh-compaction-basic / dsh-compaction-tool-result-pruner / dsh-command-compact（0.2.0-rc.2）。仓库文档 §6.2 引用 docs/compatibility-audit-2026-09-05/issues.md:39 与 docs/issue-maintenance-2026-10-10/README.md:94，显式立场是“不造第二套压缩引擎”。\n\n未验证项已单列：成员在宿主 dsh-compaction-basic 下实际继承的阈值/保留比行为未做运行态验证（§8）。",
+      "acceptanceResults": [
+        {
+          "criterion": "覆盖下列 6 个维度，每维度至少一条带 路径+行号 的证据",
+          "status": "passed",
+          "evidence": "交付物 I:/VMsShare/context-compare/t2-dsh-agent-teams-context-mechanisms.md 六节对应六维，每节 2-14 条 路径+行号 证据。(1) src/members.ts:1-13,907-917,942,1000-1016; src/types.ts:261-266; harness dsh-subagent/lib/types/continuation.d.ts:7-11。(2) src/scheduler.ts:210-219,248-262,66-74,450-452; src/members.ts:966-972; src/harness-compat.ts:191-205; src/types.ts:309-323; src/tools.ts:2204,2244; src/mailbox.ts:22-31,158-175。(3) src/scheduler.ts:225-241; src/types.ts:137-149,151-160,162-206; src/state.ts:171-179。(4) src/state.ts:1-14,55-56,1152-1157; src/index.ts:195; src/snapshot.ts:1-9。(5) src/members.ts:644-654; src/scheduler.ts:40-43,163-171,222-224; src/tools.ts:2361,2398,2405,2416,2835,2842,2868; src/members.ts:30-31,776-780。(6) src/harness-compat.ts:122-129; src/capabilities.ts:56-59,101-106。"
+        },
+        {
+          "criterion": "明确给出 插件自身机制 vs DSH harness 能力 的边界结论",
+          "status": "passed",
+          "evidence": "报告 §0 四条边界结论 + §6.2 归属表（历史存储/压缩/工具结果裁剪=harness；startContinuable/followup/deliverPrompt 原语=harness，派发策略=插件；任务与契约持久化、派发载荷、mailbox、状态渲染=插件；历史检索/笔记/摘要=两端均无）。harness 侧以本机安装包为证：node_modules/@deepseek-ai 下 dsh-compaction, dsh-compaction-basic, dsh-compaction-tool-result-pruner, dsh-command-compact 均 0.2.0-rc.2。"
+        },
+        {
+          "criterion": "所有代码片段少于 15 行且与仓库当前内容逐字一致",
+          "status": "passed",
+          "evidence": "check-t2-evidence.mjs 逐字节比对 commit 1094b84a 工作树：43 段 src 片段 + 3 段 docs 引用全部逐字一致，335 行参与比较，0 失败；全部片段 <= 15 行（最长 15）。日志见 t2-snippet-verification.log。"
+        },
+        {
+          "criterion": "未实现的机制明确写 未实现，不臆测",
+          "status": "passed",
+          "evidence": "报告 §6.1 逐项写“未实现”：压缩（src/** 无 compact/compaction 调用、无 dsh-compaction 依赖）、摘要、笔记、历史检索；§8 另列“未验证：成员在宿主 dsh-compaction-basic 下实际继承的压缩阈值与行为”，避免把宿主能力当成插件能力。"
+        }
+      ],
+      "commandsRun": [
+        {
+          "command": "node check-t2-evidence.mjs t2-dsh-agent-teams-context-mechanisms.md <repoRoot> <dshNodeModulesRoot>",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "src snippets ok : 43 / src lines compared: 335 / docs excerpts ok : 3 / failures : 0"
+        },
+        {
+          "command": "git -C I:\\VMsShare\\_src-compare\\dsh-agent-teams status --porcelain",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "空输出，被测仓库只读未改；HEAD=1094b84add6f2fb19edf659367fe2fd5f7f14154 (tag v0.1.23)"
+        }
+      ]
+    },
+    {
+      "id": "t3",
+      "subject": "DSH harness 自身上下文机制取证：截断/压缩/会话存储/子代理上下文隔离",
+      "description": "取证本机实际使用的 DSH（DeepSeek Harness）在 harness 层为 agent 提供的上下文机制，因为 dsh-agent-teams 是跑在它之上的插件。可用来源：\n\n(1) 本机 DSH 安装与源码：D:\\Dev\\Path\\nodejs_25.0.0\\npm-cache\\_npx\\1e7f6d9597241db0\\（只读，不得修改）。\n(2) 本机 DSH 配置与会话数据目录（如 ~\\.dsh 或同类路径），观察真实会话记录结构与体积。\n(3) 本机已安装的 dsh-agent-teams 运行时目录（若存在）。\n\n需查清：工具输出截断策略与预算常量；是否有压缩/compact 机制及其触发；会话持久化格式；子代理（subagent/fork）是否继承完整上下文、继承边界如何定义；成员会话被唤醒时的上下文装配方式。与 Codex 的对应机制做初步标注（哪些维度 Codex 有、DSH 没有或不同）。只读取，不修改任何被测文件。每条结论写 绝对路径或仓库相对路径 + 行号。",
+      "status": "completed",
+      "assignee": "dsh-researcher",
+      "dependencies": [],
+      "attempt": 1,
+      "createdAt": 1791729586795,
+      "updatedAt": 1791733447922,
+      "kind": "work",
+      "acceptance": [
+        "覆盖 工具输出截断/压缩机制/会话持久化/子代理上下文继承 四个维度，各至少一条带 路径+行号 的证据",
+        "明确标注每个维度 Codex 有而 DSH 没有（或反之）的初步差异",
+        "全程未修改任何被测文件"
+      ],
+      "deliverables": [
+        "I:\\VMsShare\\context-compare\\dsh-harness-context.md"
+      ],
+      "attemptId": "4536bb38-6b83-4991-9683-8103993947bf",
+      "reassigning": false,
+      "output": "交付物：I:\\VMsShare\\context-compare\\t3-dsh-host-context-infrastructure.md（46 段源码引用全部逐字核验，299 行参与比较，failures=0；另 12 个未标记代码块为运行态/命令证据，已在文中标注来源与命令）。证据工具与日志：t3-evidence-tools/（read-session、survey-session-headers、survey-pressure、classify-compactions、scan-real-artifacts、inspect-compaction、check-t3-evidence）+ t3-snippet-verification.log。\n\n按船长范围更正后的收口结论（三层严格分层）：\n\n【宿主压缩栈】四个包的职责与阈值\n- dsh-compaction：与后端无关的服务缝（ctx.compaction），触发只有 'pressure' | 'context-overflow' 两种，三个抽象入口 compactIfNeeded / compactNow / compactRegion。\n- dsh-compaction-basic：策略+LLM 摘要。默认 thresholdRatio=0.8、headroomTokens=65536、retainRatio=0.16、auto=true、compactionRetries=1、maxOverflowRetries=1。阈值按路由动态算：thresholdTokens=floor(min(window×0.8, window−reserved−65536))，本机 1M 窗口 ⇒ ≈803,392；retainTokens≈139k。触发点：agent/pre-step（pressure）+ agent/request-error 的 CONTEXT_WINDOW_EXCEEDED（溢出救援）。\n- dsh-compaction-tool-result-pruner：无模型、按 Unicode code point 的 head/middle/tail 裁剪，默认 8192/4096/1024（profile 同值），只作用于 surface 上的 tool/result；先追加 compaction/prune 定价事件，再追加替换事件并声明 surfaceOp=replace（日志只增不改）；在压缩前先跑，若降到阈值以下则省掉 LLM 摘要。\n- dsh-command-compact：注册 `compact` 命令，唯一动作是 ctx.compaction.compactNow(..., commandId)。\n\n关键运行态发现（比只读源码更可信）\n- 56 个真实会话全部解析成功（多帧 zstd → 33,020 条 JSONL）：**26 次压缩全部是手动 /compact，自动触发 0 次，失败 1 次（额度不足）**；最大 contextPressure 仅 394,485，不到阈值 803,392 的一半 ⇒ 自动压缩在本机实质休眠。52 个 spill notice + 18 处子进程输出截断，说明“溢出到文件”这条路径才是实际生效的截断手段。\n- 会话格式：`<DSH_HOME>\\\\sessions\\\\<workspace>\\\\<sessionId>\\\\session.v4.jsonl.zstd`，zstd 魔数 28 B5 2F FD，多帧追加（单文件实测 114 帧/229 记录），压缩以“追加替换事件”实现而非重写文件。\n\n【harness 核心】子代理继承边界\n- fork provider：inheritsParentContext=true，seed = 父日志到最后一个 turn/end 的前缀（不含进行中的轮次），一次性快照。\n- spawn provider：inheritsParentContext=false。\n- **dsh-agent-teams 用 spawn**（插件 index.ts:196 默认 'spawn'）⇒ 运行态 5 个成员会话全部 seeded=false、depth=1、origin=subagent、preset=standard：成员零继承父对话，只拿插件注入的 persona + 派发提示。\n\n【插件】与压缩栈的交互\n- 无按成员区分的预算：compaction-basic 全文对 origin/delegationDepth/parentSession/subagent 的检索命中为 0，自动监听器对所有 agent 生效；成员与 captain 走同一 preset、同一套公式，各自独立计算但阈值相同。成员被唤醒时上下文 = 自身 durable session 全量事件经 surface 投影（含 spill/pruner/摘要替换）后的结果。\n\nCodex 对照的关键差异（详见报告 §8 九行表）：DSH 截断多一层“外置文件+可检索路径”；DSH 有 provider 级“继承/不继承”二分而 Codex 以隔离为主；两者都没有按成员分档的上下文预算。\n\nUNVERIFIED（已在报告 §9 列明检索位置）：pruner 的真实触发实例（本机日志未出现非自引用标记）、压缩前后压力对比（投影只保留最新值）、是否发生过 context-overflow 救援、image-offload 阈值行为。\n\n只读性：DSH 安装根 0 文件被修改；.dsh 下 14 处更新均为运行中 Harness 自身写入（含本会话日志），非取证写入。",
+      "acceptanceResults": [
+        {
+          "criterion": "覆盖 工具输出截断/压缩机制/会话持久化/子代理上下文继承 四个维度，各至少一条带 路径+行号 的证据",
+          "status": "passed",
+          "evidence": "交付物 I:\\VMsShare\\context-compare\\t3-dsh-host-context-infrastructure.md，四维均有源码行号+运行态依据。(1) 工具输出截断：spill-policy maxInlineTokens=12500（C:\\Users\\ZYX\\.dsh\\profiles\\web\\cordis.yml:331-336；dsh-spill-policy/lib/index.js:184-199,216-224,237-242）+ tool-result-pruner 8192/4096/1024（cordis.yml:737-739；pruner/lib/index.js:7-14,91-95,137-146,159-177）。(2) 压缩机制：dsh-compaction 服务缝（lib/types/index.d.ts:1-8,25,116,137,157）、compaction-basic 默认阈值 thresholdRatio=0.8/headroom=65536/retainRatio=0.16/auto=true（lib/index.js:15,17,59-86,128-134）、两触发点（839-855 pressure、861-868 context-overflow）、/compact 入口（dsh-command-compact/lib/index.js:4-9,55-64,93-98）。(3) 会话持久化：session.v4.jsonl.zstd 多帧 zstd（dsh-session-persistence-jsonl/lib/types/format.d.ts:12-19,39-53；zstd.d.ts:1-6,30-40）+ 真实文件/表头运行态。(4) 子代理上下文继承：fork=completedTurnPrefix 到最后一个 turn/end（dsh-subagent-fork-in-process/lib/index.js:4-11,23-28,44,48-55）、spawn=inheritsParentContext false（dsh-subagent-spawn-in-process/lib/index.js:30）、语义声明（dsh-subagent/lib/types/types.d.ts:332-337）。"
+        },
+        {
+          "criterion": "明确标注每个维度 Codex 有而 DSH 没有（或反之）的初步差异",
+          "status": "passed",
+          "evidence": "报告 §8 按九行维度做对照表（截断/摘要压缩/自动触发/手动入口/会话持久化/子代理继承/按成员区分预算/上下文外置可检索），每行给出“Codex 有、DSH 有或不同”的标注。三个最关键差异：(a) DSH 截断多一层“外置文件+可检索路径”；(b) 自动压缩在本机 56 会话中 0 次触发（26 次全部为手动 /compact），属运行态差异；(c) DSH 把“继承/不继承”做成 provider 选择，而 dsh-agent-teams 选 spawn ⇒ 成员零继承。"
+        },
+        {
+          "criterion": "全程未修改任何被测文件",
+          "status": "passed",
+          "evidence": "证据根 D:\\...\\_npx\\1e7f6d9597241db0 自会话开始（2026-10-11 22:40）起 0 个文件被修改（mtime 全为 2026/10/7 1:42）；C:\\Users\\ZYX\\.dsh 下 14 个文件的更新均为运行中 Harness 自身的实时写入（本会话日志追加、投影缓存、profile 启动重写），非取证写入，且引用的 cordis.yml 内容核对后逐字未变。所有解帧脚本只用 zstdDecompressSync 读，不写。"
+        }
+      ],
+      "commandsRun": [
+        {
+          "command": "node t3-evidence-tools/check-t3-evidence.mjs t3-dsh-host-context-infrastructure.md <dshNodeModulesRoot> <dshHome>",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "markers 46 / snippets ok 46 / lines compared 299 / unmarked blocks 12 (runtime/command evidence) / failures 0"
+        },
+        {
+          "command": "node t3-evidence-tools/classify-compactions.mjs 'C:\\Users\\ZYX\\.dsh\\sessions'",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "TOTALS manualSummaries=26 automaticSummaries=0 failedCompactions=1; shadowedNodes=6706 shadowedTokensSum=5679166"
+        },
+        {
+          "command": "node t3-evidence-tools/survey-session-headers.mjs 'C:\\Users\\ZYX\\.dsh\\sessions\\--I-VMsShare--'",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "5 个 AgentTeams 成员会话均为 depth=1 seeded=false origin=subagent preset=standard；3 个 captain 会话 depth=0"
+        },
+        {
+          "command": "node t3-evidence-tools/scan-real-artifacts.mjs 'C:\\Users\\ZYX\\.dsh\\sessions'",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "sessions=56 spillNotices=62 subprocessTruncations=18 compactionSummaries=26；pruneMarkers 经逐字符核验为自引用假阳性"
+        },
+        {
+          "command": "Get-ChildItem <root> -Recurse -File | Where LastWriteTime -gt <session start>",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "DSH 安装根 0 个文件被修改（只读约束成立）"
+        }
+      ]
+    },
+    {
+      "id": "t4",
+      "subject": "机制清单对照表：Codex vs dsh-agent-teams/dsh-harness 上下文健康逐项比对",
+      "description": "基于 t1、t2、t3 的取证结果，产出面向长程 team 任务的上下文健康机制对照表。\n\n【范围定位（重要，必须先读）】本次比对的 DSH 侧主体是 NanmiCoder/dsh-agent-teams 这个成品插件；DSH 自带的内置“智能体团队”只是实验版，不是比对目标，也不作为基准来评价。而 dsh-agent-teams 自身不实现压缩/摘要/笔记/检索，它把对话历史窗口与压缩整体外包给宿主侧的 dsh-compaction 组件栈（dsh-compaction / dsh-compaction-basic / dsh-compaction-tool-result-pruner / dsh-command-compact）。因此 dsh 侧的“上下文方法”实际由【插件只持久化工作状态】+【宿主压缩组件栈处理对话历史】两部分合成，对照表必须按这个合成视角组织，不能只写插件层。\n\n要求：\n(1) 以机制维度为行（压缩触发、截断、交接摘要、用户原话保留、远程压缩、token budget 主动规划、持久笔记、thread hint、history 检索、跨窗口状态文件、子代理上下文隔离、结果投递形态等），列为 Codex / dsh-agent-teams（插件层）/ DSH 宿主压缩栈，单元格写 做法 + 证据路径行号。\n(2) 对每一行给出 这对我方是否适用 的判断：机制生效条件、前置依赖、在 dsh-agent-teams 架构里能否照搬（若需宿主侧支持，明确写依赖哪个组件）。\n(3) 区分 同一问题不同解法、Codex 有而 DSH 无、DSH 有而 Codex 无、表面相似但语义不同 四类情况，不得强行一一对应。\n(4) 不得引入 t1/t2/t3 之外的未经取证断言。证据不足的格写 证据不足。\n(5) 必须带出 t1 §11 的报告差异结论（尤其：保留用户原话 20k 仅本地文本压缩路径成立、远程压缩 v2 为 64k；history 工具真实名为 namespaced 形式且区分大小写），因为报告的说法不能直接抄进结论。\n\n输出 markdown 表格 + 必要的分类说明。",
+      "status": "completed",
+      "assignee": "synthesizer",
+      "dependencies": [
+        "t1",
+        "t2",
+        "t3"
+      ],
+      "attempt": 1,
+      "createdAt": 1791729594385,
+      "updatedAt": 1791733909769,
+      "kind": "work",
+      "acceptance": [
+        "每个机制行至少含 Codex 与 dsh 两侧的结论，或明确的 证据不足/未实现",
+        "所有结论可回溯到 t1/t2/t3 的证据路径",
+        "未引入 t1/t2/t3 之外的新断言",
+        "四类情况分类到位，无强行一一对应"
+      ],
+      "deliverables": [
+        "I:\\VMsShare\\context-compare\\dsh-vs-codex-context-matrix.md"
+      ],
+      "attemptId": "6971cf5b-bccd-4234-8b3f-1513bb5cadc5",
+      "reassigning": false,
+      "output": "交付物：I:\\VMsShare\\context-compare\\t4-mechanism-matrix.md（116 行 / 40 KB），机制维度对照表，19 个机制行（M1–M19）× 三方列（Codex / dsh-agent-teams 插件层 / DSH 宿主压缩栈），每格写「做法 + 证据路径行号」。\n\n覆盖任务点名的全部维度：压缩触发（M1 阈值算法 / M2 回合相位 / M3 窗口两档）、截断（M4，含宿主 spill+pruner 两层）、交接摘要（M5）、用户原话保留（M6）、远程压缩（M7）、token budget（M8，+ M9 压缩自身溢出降级）、持久笔记（M16）、thread hint（M18）、history 检索（M17）、跨窗口状态文件（M11）、子代理上下文隔离（M12）、结果投递形态（M13）；另单列 M10 人工压缩入口、M14 压缩是否重写会话记录、M15 按成员预算、M19 固定前缀。\n\n关键收口：\n- M15 是最清晰的可落地空白：宿主 dsh-compaction-basic 全文对 origin/delegationDepth/parentSession/subagent 检索仅 2 处文案命中、无任何分支逻辑（本轮独立复核），成员与 captain 共用同一策略与公式、各自独立计；运行态成员 5555841f-… pressure=348,245 远低于阈值 ≈803,392。\n- M6 已双写报告差异：20k 仅本地文本压缩路径成立（compact.rs:63），远程 v2 为 64k / 单条 agent 10k（compact_remote_v2.rs:78-79）；M17 已用 namespaced 名 history.list_windows/list_items/read_item/search_contents，并写明「区分大小写字面包含」（tools.rs:181）。\n- 分类：①同一问题不同解法 7 条（M1/M2/M4/M5/M9/M12/M17）；②Codex 有而 DSH 无（M7 远程 opaque、M8 模型可见预算、M16 持久笔记、M18 thread hint、M6 用户原话配额）；③DSH 有而 Codex 无（M4 spill 外置层、M10 /compact、M11 结构化权威源、M14 追加式替换、M15 空白、M19 固定前缀不变量）；④表面相似但语义不同 5 条（M5/M6/M11/M13 及 M2 的「中途」粒度）；M3 与 M10-Codex 侧判为「不能归入四类」。\n- 证据边界：证据不足项 5 处已逐格标注（M10/M13/M14/M15 的 Codex 侧、M3 归类）；t3 自带的 4 项 UNVERIFIED 照抄，并明令不得据此断言 pruner/溢出救援实际起过作用。未引入 t1/t2/t3 之外的新断言；改进项落地写法留给 t6。\n- 结构自检：主表/续表 7 列、R 表 4 列、§4.1 表 3 列，全表反引号配对平衡（脚本审计 0 处 UNBALANCED）；§4.1 另记录本轮锚点复核结果。",
+      "acceptanceResults": [
+        {
+          "criterion": "每个机制行至少含 Codex 与 dsh 两侧的结论，或明确的 证据不足/未实现",
+          "status": "passed",
+          "evidence": "19 行 M1–M19 每行三列均非空；未实现写「未实现」（插件列 M5/M6/M8/M9/M10/M13/M15/M16/M17/M18，宿主列 M7/M18），证据不足写「证据不足 / t1 未取证」（M10/M13/M14/M15 的 Codex 侧）。列数与单元格统计：19 行 × 7 列，无缺格。"
+        },
+        {
+          "criterion": "所有结论可回溯到 t1/t2/t3 的证据路径",
+          "status": "passed",
+          "evidence": "每格以 `路径:行号` 末尾标注；§4.1 记录本轮独立复核：宿主 21/21 锚点命中、插件 31/31 锚点命中（初判 MISMATCH 均系锚点 token 落在注释行而定义在紧邻下一行）；M15 的「无血缘分流」另以 Select-String 独立复核（命中仅 L249/L880 两处文案，无分支逻辑）。t2 自带 check-t2-evidence.mjs 已 43/43；t3 自带 check-t3-evidence.mjs 已 46/46。"
+        },
+        {
+          "criterion": "未引入 t1/t2/t3 之外的新断言",
+          "status": "passed",
+          "evidence": "所有「适用性/照搬」判断写成已适用 / 需宿主某组件支持 / 证据不足 / 不需要照搬四档，需宿主支持一律点名组件（dsh-compaction-basic 分档逻辑、dsh-compaction 触发表、宿主剩余额度暴露）；对超范围内容（AGENTS.md 的 project_doc_max_bytes 具体数值、Codex 的 memories 模块、Codex 是否有等价 project-doc 机制）明确标注为超出取证范围或 UNVERIFIED，未据此下结论；改进项落实写法显式留给 t6。"
+        },
+        {
+          "criterion": "四类情况分类到位，无强行一一对应",
+          "status": "passed",
+          "evidence": "§2 四类逐条列出：类别①7 条、类别②5 条、类别③6 条、类别④5 条；另设「不能归入四类的行」（M3 口径不可直接对照、M10 的 Codex 侧证据不足无法判类）。类别②③均标注「限定在本轮取证范围内」，并说明不追求补全对称（M7/M8 的 DSH 侧无对等物属结构性而非取证缺口）。"
+        }
+      ]
+    },
+    {
+      "id": "t5",
+      "subject": "独立核验对照表中的关键断言（以证伪为目标）",
+      "description": "对 I:\\VMsShare\\context-compare\\dsh-vs-codex-context-matrix.md 中影响结论的断言做独立复核。抽查重点：Codex 侧压缩阈值与触发位置、截断实现、保留用户原话的 token 常量、thread hint 4000 字节上限、history 四个接口的官方工具名与参数、token budget 默认关闭的配置项；dsh 侧子代理生命周期与结果投递形态、插件与 harness 的归属划分。逐条回到 I:\\VMsShare\\_src-compare 与 DSH 安装目录核对。\n\n对每条抽检给出：断言原文、复核结果（成立/不成立/部分成立）、证据路径+行号。发现错的必须写清正确事实。默认怀疑态度，不要把「看起来合理」当作成立。",
+      "status": "completed",
+      "assignee": "verifier",
+      "dependencies": [
+        "t4"
+      ],
+      "attempt": 1,
+      "createdAt": 1791729594394,
+      "updatedAt": 1791734500172,
+      "kind": "work",
+      "acceptance": [
+        "至少抽检 8 条影响结论的断言，每条给出 成立/不成立/部分成立 与证据路径行号",
+        "所有 不成立/部分成立 条目写明错误原文与正确事实",
+        "给出总体结论：对照表是否可用于决策，或需先修正哪些行"
+      ],
+      "deliverables": [
+        "I:\\VMsShare\\context-compare\\verification.md"
+      ],
+      "attemptId": "fdf2014b-c73d-4869-82f1-3e726ef2a97d",
+      "reassigning": false,
+      "output": "t5 独立核验完成，交付物 I:\\VMsShare\\context-compare\\t5-verification-report.md（132 行）+ 可复现审计脚本 t5-anchor-audit.ps1。注意：任务书点名的 dsh-vs-codex-context-matrix.md 不存在，核验以 t4 实际交付物 t4-mechanism-matrix.md 为基准（含其 §4.1 自述）。\n\n抽检 18 条（≥8）：成立 15、部分成立 2（M16、M17）、成立但依据链有错 1（M12）。无『不成立』的机制事实断言。\n\n必须修正 5 处（错误原文+正确事实+行号已逐条写入 §2）：\n1) 【最严重】t3:692 断言『本机 profile 未覆盖该默认，故本机实际解析为 spawn』与事实冲突 —— C:\\Users\\ZYX\\.dsh\\profiles\\web\\cordis.yml:1270-1274 显式 `memberProvider: spawn`。运行态结论（成员零继承）不变且更硬。另 index.ts:196 的 `?? 'spawn'` 是冗余回退，Schema 默认在 index.ts:133。\n2) t4 L33（M16）：notes action 定义不在 tools.rs:63-88（那里是 namespace/name/endpoint 三个 match），实在 :37-41。\n3) t4 L34（M17）：`read_item` 必填 ids 的死引用 tools.rs:206-218（该文件仅 411 行，无 read_item）；实在 :166-176，required 在 :175。\n4) t4 L23（M6）：把 collect_annotated_user_messages 的定义行 :574 当调用点，调用实在 :384（:386 透传到 :677-688）。\n5) 引用格式混写定义/调用点（低 severity）。机械审计 132 处引用无越界/无缺失（range problem: 0），问题在语义对齐而非行号存在性。\n\n船长交办的新增断言全部成立：child_config.rs:135-141（SubagentDefaultContextLimits，default_enabled:false）、guardian/review.rs:151-153（精确命中）、agent-roles 六词零命中、dsh-compaction-basic 对 delegationDepth/parentSession/subagent/origin=== 零命中（仅 2 处文案）。故 t4 把 M15 Codex 侧由『证据不足』改判为『有机制但默认关闭』站得住，但不得写成『Codex 有分档预算』。\n\n总体结论：机制事实层可用于决策（含 M15 空白结论，已独立复核确认）；引用层需按上述 5 处修正后再定稿。报告 §4 已给出 t6 的 4 条具体修正要求。自我更正一处：初审怀疑 t4 L29『5 个成员会话』计数，复核 t3:694-701 恰列 5 条且逐字一致，已撤回。",
+      "changedPaths": [
+        "context-compare/t5-verification-report.md",
+        "context-compare/t5-anchor-audit.ps1"
+      ],
+      "acceptanceResults": [
+        {
+          "criterion": "至少抽检 8 条影响结论的断言，每条给出 成立/不成立/部分成立 与证据路径行号",
+          "status": "passed",
+          "evidence": "抽检 18 条（合同要求 ≥8）：A1 M1 阈值 min(90%,config) openai_models.rs:529-540 成立；A2 M2 PreTurn/MidTurn/PostTurn turn.rs:1304,1316-1329/609-610,621-629/720-737 成立；A3 M4 split_budget truncate.rs:156-158 + model_info.rs:126 10000B + output-truncation/lib.rs:17-20 x1.2 成立；A4 M5 SUMMARY_PREFIX compact.rs:383 成立；A5 M6 compact.rs:63=20_000 成立；A6 M8 features/src/lib.rs:1889-1894 + spec_plan.rs:1401-1404 成立；A7 M18 extension.rs:31 MAX_THREAD_HINT_BYTES=4_000 + :140 text.len() 成立；A8 M16 部分成立；A9 M17 部分成立；A10 M10 成立；A11 M13 成立；A12 M11 成立；A13 M12 成立；A14/A15/A16/A17 M15 新增船长断言 成立；A18 M4 运行态数值与 t3:512 一致 成立。详见 t5-verification-report.md §1 总表。"
+        },
+        {
+          "criterion": "所有 不成立/部分成立 条目写明错误原文与正确事实",
+          "status": "passed",
+          "evidence": "t5-verification-report.md §2 逐条给出错误原文+正确事实+证据：2.1 t3:692『本机 profile 未覆盖该默认』错误，正确事实=profile cordis.yml:1270-1274 显式 memberProvider: spawn；2.2 t4 L33 M16 引用 tools.rs:63-88 错 26 行，notes action 定义实在 :37-41；2.3 t4 L34 M17 read_item 引 tools.rs:206-218 为死指针，实在 :166-176（required :175）；2.4 t4 L23 M6 把 collect_annotated_user_messages 定义行 :574 当调用点，调用实在 :384；2.5 引用格式歧义（混写定义/调用点）。§1 中 A8/A9 判定为部分成立并已拆出成立部分与错误部分。另在报告开头『自我更正』与 §3.11 记录我初审对 t4 L29『5 个成员会话』的质疑经复核不成立（t3:694-701 恰列 5 条），已撤回该 finding。"
+        },
+        {
+          "criterion": "给出总体结论：对照表是否可用于决策，或需先修正哪些行",
+          "status": "passed",
+          "evidence": "t5-verification-report.md §4 判定：机制事实层可用于决策；引用层必须先修正 5 处后再定稿。点名需修正：t3:692、t4 L33(M16)、t4 L34(M17)、t4 L23(M6)、全表引用补 token 锚点；并给出对 t6 的 4 条具体要求（M15 Codex 侧措辞、成员继承依据改为 profile:1274、M16/M17 行号、§4 证据边界表删除『M15 Codex 侧证据不足』）。同时对 M15『最清晰可落地空白』给出独立确认（宿主 origin ===/delegationDepth/parentSession/subagent 全 0 命中，自动监听器对所有 agent 生效）。"
+        }
+      ],
+      "commandsRun": [
+        {
+          "command": "pwsh -NoProfile -File I:\\VMsShare\\context-compare\\t5-anchor-audit.ps1",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "对 t4 全部 132 处 `路径:行号` 引用做机械审计（含 bare 文件名多候选解析）：citations with a range problem: 0（无越界、无文件缺失）——即 t5 发现的问题不是行号越界，而是『引用行号解析得到但讲的是另一件事』，必须人工比对语义。"
+        },
+        {
+          "command": "Select-String -Path ...\\dsh-compaction-basic\\lib\\index.js -Pattern 'origin ===' -SimpleMatch",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "0 命中；同文件 delegationDepth/parentSession/subagent/isSeeded/depth 各 0 命中，仅有 2 处 origin 子串文案（L249 摘要模板、L880 错误文案）⇒ 证实 M15『宿主无成员维度分流』。"
+        },
+        {
+          "command": "Select-String -Path ...\\codex-rs\\ext\\history-notes\\src\\tools.rs -Pattern 'read_item|list_files_by_prefix|write_file'",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "读入方 read_item 全文件仅 L75 一处名称映射，L166-176 才是其 schema，L175 为 required [item_id, window_id]；证伪 t4 L34 的 tools.rs:206-218 引用。"
+        },
+        {
+          "command": "Select-String -Path C:\\Users\\ZYX\\.dsh\\profiles\\web\\cordis.yml -Pattern 'memberProvider'",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "L1274 `memberProvider: spawn`（agent-teams 行 L1270-1274）⇒ 证伪 t3:692『本机 profile 未覆盖该默认』。"
+        },
+        {
+          "command": "Get-Content codex-rs\\core\\src\\agent\\child_config.rs | Select 132-160; codex-rs\\core\\src\\guardian\\review.rs | Select 151-153",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "child_config.rs:135-141 在 Feature::SubagentDefaultContextLimits 下把 model_context_window/model_auto_compact_token_limit 置 None（feature default_enabled:false，features/src/lib.rs:1481-1486）；guardian/review.rs:151-153 在 review_model.model != context.model_info.slug 时同款覆写 ⇒ 船长新增的 M15 Codex 侧两条断言成立。"
+        },
+        {
+          "command": "Get-ChildItem codex-rs\\agent-roles -Recurse -File | Select-String -Pattern 'compact|context_window|token_limit|budget'",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "六个检索词在 agent-roles/** 各 0 命中；AgentRole 全仓 128 命中均在角色/提示配置侧 ⇒ 『Codex 无按角色分档压缩预算』成立。"
+        }
+      ]
+    },
+    {
+      "id": "t6",
+      "subject": "定稿：按核验结论修正对照表，并产出 dsh 侧可落地改进建议",
+      "description": "整合 t4 与 t5：\n\n【范围定位】比对目标为 NanmiCoder/dsh-agent-teams 成品插件 + 其实际依赖的宿主压缩组件栈（dsh-compaction 系列）。DSH 自带的内置“智能体团队”是实验版，不作为基准或评价对象；改进建议也不要建立在“实验版行为”之上。\n\n(1) 逐条落实 t5 中 不成立/部分成立 的修正，更新 dsh-vs-codex-context-matrix.md，并在文末记录本轮修正点（只写当前状态与已修正事实，不写开发阶段、不写历史决策）。\n(2) 产出改进建议清单，按 DSH 长程 team 任务的实际约束排序。每条建议须写清：要解决的问题、对应 Codex 的哪个机制、在 dsh 侧改哪个文件/哪一层（dsh-agent-teams 插件层 / 宿主压缩组件栈 / DSH harness 核心）、最小可行改法、验证方式。凡是需要宿主侧支持的，必须点名具体组件与可落点，禁止泛化。\n(3) 明确哪些 Codex 机制在 dsh-agent-teams 的架构下 不建议照搬 及原因（例如远程 opaque 压缩依赖服务端、history 检索依赖窗口索引等）。\n(4) 在 I:\\VMsShare\\context-compare\\README.md 写一段结论摘要与文件清单；文末一并说明取证文件命名（t1-/t2-/t3- 前缀为区分取证来源，t4/t6 的对照表与定稿为正式交付）。",
+      "status": "completed",
+      "assignee": "synthesizer",
+      "dependencies": [
+        "t4",
+        "t5"
+      ],
+      "attempt": 1,
+      "createdAt": 1791729599983,
+      "updatedAt": 1791735074564,
+      "kind": "work",
+      "acceptance": [
+        "t5 指出的每条 不成立/部分成立 断言都已修正或明确驳回并说明理由",
+        "每条改进建议含 问题/对应机制/改动位置/最小改法/验证方式 五项",
+        "明确列出不建议照搬的机制及原因",
+        "README.md 含结论摘要与文件清单"
+      ],
+      "deliverables": [
+        "I:\\VMsShare\\context-compare\\dsh-vs-codex-context-matrix.md",
+        "I:\\VMsShare\\context-compare\\README.md"
+      ],
+      "attemptId": "36765b89-a9c4-4cc9-aa2b-d8b4d6f39446",
+      "reassigning": false,
+      "output": "t6 定稿完成。交付物三件：\n\n1) **I:\\VMsShare\\context-compare\\t6-improvement-plan.md**（116 行 / 20 KB，正式交付）\n- §1 t5 核验落实表：5 处全部处置——4 处已修正（t3:692 profile 依据、M16 引用区间、M17 read_item 死指针、M6 定义/调用点），1 处（全表补 token 锚点，低 severity）**明确部分驳回**并说明理由（格式增补不改结论、批量改写风险大于收益），转为「新增/改动引用强制带锚点」+ §5 待办。\n- §2 改进建议 5 条，按 DSH 长程 team 实际约束排序，每条含 问题/对应机制/改动位置/最小改法/验证方式（脚本核验 5/5 齐备）：①宿主压缩栈引入子代理维度降档闸门（最高优先，落 dsh-compaction-basic lib/index.js:128-134，附\"有机制但 default_enabled:false\"限定）②收敛队长收件箱正文体量（插件层可独立完成，tools.ts:2405-2409）③用户原话保留配额（宿主，附 20k 仅本地路径成立的口径限定）④契约压缩后可廉价重读（插件层，机制已具备）⑤压缩失败/溢出救援可观测记录（宿主，诊断价值）。\n- §3 不建议照搬：4 条（远程 opaque 压缩 / 跨窗口 history.* 检索 / thread hint / 模型可见 token 额度）+ 1 条判为\"照搬无效\"（再加自动触发点已存在且休眠），每条附 Codex 证据行号与原因；§3.1 归类汇总。\n- §6 命名说明：t1–t3 取证件、t4/t6 正式交付、t5/t7 核验件、README 总入口。\n\n2) **I:\\VMsShare\\context-compare\\README.md**（50 行 / 8 KB，重写为总入口）：§0 比对边界（成品插件 vs 内置实验版，含\"实验版四包零命中协议文本\"的运行态证据）、§1 结论摘要、§2 文件清单与映射（9 行，含契约名偏差说明）、§3 阅读顺序、§4 待办与口径说明。\n\n3) t4-mechanism-matrix.md 与 t3 已同步落实 t5 修正（t4 §4.1/§4.2 留痕）。\n\n准确度说明：船长给的 `cordis.patch.yml:21` 实为模型表（deepseek/deepseek-v4.1-flash 的 contextWindow/maxTokens），`memberProvider` 全 profile 仅在 `cordis.yml:1274` 出现——三份文档均按后者锚定。建议 1/3/5 的落点为第三方 npm 包，已标注\"不宜改写构建产物、正规路径为上游请求\"的约束，未声称已实现；被测仓库 git status 均为 clean。",
+      "changedPaths": [
+        "I:\\VMsShare\\context-compare\\t6-improvement-plan.md",
+        "I:\\VMsShare\\context-compare\\README.md",
+        "I:\\VMsShare\\context-compare\\t4-mechanism-matrix.md",
+        "I:\\VMsShare\\context-compare\\t3-dsh-host-context-infrastructure.md"
+      ],
+      "acceptanceResults": [
+        {
+          "criterion": "t5 指出的每条 不成立/部分成立 断言都已修正或明确驳回并说明理由",
+          "status": "passed",
+          "evidence": "t5 §2 共 5 处（含 2 部分成立 + 1 依据链有错）：①§2.1 t3:692 profile 依据错误 → 已改写为「profile 显式写入 cordis.yml:1274」并区分 Schema 默认 index.ts:133 / 运行时回退 :196；②§2.2 M16 引用区间错 26 行 → 已改为 tools.rs:37-41 / :71-82 / :290-292 / :28；③§2.3 M17 read_item 死指针 → 已改为 :166-176，required :175；④§2.4 M6 定义/调用点混淆 → 已改为 定义 :574 / 调用 :384 / 透传 :386→:677-688；⑤§2.6 全表补 token 锚点 → **明确部分驳回**并在 t6 §1 第 5 行说明理由（格式增补、不改结论、批量改写风险大于收益；改为「新增/改动引用强制带锚点」），并在 t6 §5 列为未完成待办。落实表在 t6 §1，同日向 t4 §4.1/§4.2 同步。"
+        },
+        {
+          "criterion": "每条改进建议含 问题/对应机制/改动位置/最小改法/验证方式 五项",
+          "status": "passed",
+          "evidence": "脚本核验：建议 1–5 各含「要解决的问题 / 对应 Codex 的机制 / 改动位置 / 最小可行改法 / 验证方式」，5/5 项齐全（5 条均通过）。改动位置逐条点名具体组件：建议 1/3/5 = 宿主 @deepseek-ai/dsh-compaction-basic（lib/index.js:128-134、:927-934、:861-872）；建议 2/4 = 插件层 dsh-agent-teams/src/tools.ts（:2405-2409、:2415-2421）与 src/scheduler.ts:225-241。每条均注明第三方包不可改写构建产物的约束。"
+        },
+        {
+          "criterion": "明确列出不建议照搬的机制及原因",
+          "status": "passed",
+          "evidence": "t6 §3 表列出 5 行 + §3.1 归类汇总：**不建议照搬 4 条**（远程/服务端 opaque 压缩、跨窗口 history.* 检索、thread hint、模型可见 token 额度），原因均为「DSH 缺对等基础设施」或「会引入第二套口径」，每条附 Codex 证据行号；另将「再加一个自动压缩触发点」单独判为**照搬无效**（自动触发已存在且休眠：56 会话最大 pressure 394,485 vs 阈值 ≈803,392，26 次压缩全手动）。"
+        },
+        {
+          "criterion": "README.md 含结论摘要与文件清单",
+          "status": "passed",
+          "evidence": "README.md 重写为总入口：§0 比对边界（成品插件 vs 内置实验版，含实验版四包零命中协议文本的运行态证据）、§1 结论摘要（四条可采信结论 + 改进建议 5 条一句话概括 + 不建议照搬清单）、§2 文件清单与映射（9 行：取证件/正式交付/核验件分类 + 作者 + 证据工具 + 契约名偏差说明）、§3 阅读顺序、§4 已知待办与口径说明。"
+        }
+      ],
+      "commandsRun": [
+        {
+          "command": "pwsh: 对 t6 引用的 14 个 Codex 锚点按「文件+行号+关键 token」逐一读取（compact.rs / compact_remote_v2.rs / features/lib.rs / spec_plan.rs / config/mod.rs / history-notes tools.rs+extension.rs / session/turn.rs）",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "14 处全部落在 t1/t4/t5 已核验的行范围内；4 处初判 MISS 经区间读取确认均为「锚点 token 在区间内但非该行」或行首为函数名而非谓词（:548 is_retained_for_remote_compaction_v2、:1889 FeatureSpec 起始行、:31 常量、:719 let config 前置行），无引用错误"
+        },
+        {
+          "command": "pwsh: 核验实验版包与运行态归属 —— Get-ChildItem dsh-experimental-agent-team*；Select-String cordis.yml '-experimental-agent-team'；Select-String 成品插件 src 与实验版四包 'every takeover is one ready task at a time'",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "实验版四包存在但 profile 零引用（agent-teams 项 = @nanmicoder/dsh-agent-teams，cordis.yml:1270-1274）；协议文本鉴别特征在 src/index.ts:185 逐字命中、实验版四包零命中 ⇒ 本会话运行成品版"
+        },
+        {
+          "command": "pwsh: 核验改进建议 2 的插件证据 —— 读取 src/tools.ts:2390-2421 与 src/scheduler.ts:210-230",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "captain_inbox = captainInbox.slice(0,10) 全量正文渲染（:2405-2409），同批 id 于 :2415-2421 ack；assignmentPrompt 每次派发重发 goal/protocol/契约（:218-241）"
+        },
+        {
+          "command": "pwsh: 结构自检 —— README/t6/t3/t4 表格反引号配对与列数审计；t6 五行建议五项要素脚本核验",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "四个文件 0 处 UNBALANCED；README 50 行/7,987 bytes、t6 116 行/20,297 bytes；建议 1–5 均 5/5 项齐全"
+        },
+        {
+          "command": "git -C I:\\VMsShare\\_src-compare\\codex status --porcelain；git -C I:\\VMsShare\\_src-compare\\dsh-agent-teams status --porcelain",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "两个被测仓库均为 clean（无任何修改）⇒ 只读性保持"
+        }
+      ]
+    },
+    {
+      "id": "t7",
+      "subject": "增量核验定稿版：M15 改写、§5 附录新证据、5 处引用修正落实情况与改进建议落点",
+      "description": "对定稿后的最终交付物做增量独立核验。背景：t5 的核验基准是 t4 初版（116 行），而 t4 已修订为 226 行并新增了 M15 改写、§5 附录证据与 §4.2 修订台账；t6 又将新增改进建议。因此 t5 的结论不覆盖这些新增内容。\n\n核验对象（以磁盘实际内容为准，全部只读）：\n1. I:\\VMsShare\\context-compare\\t4-mechanism-matrix.md（定稿版）\n2. I:\\VMsShare\\context-compare\\README.md\n3. t6 产出的改进建议（若并入上述文件或单独成文）\n4. 交叉参考 t5-verification-report.md（不要重复其已完成部分，重点看新增内容）\n\n核验重点：\n(1) M15 改写后的结论——\"两边都没有按成员/角色分档的压缩预算；Codex 有可显式覆写子代理继承配额的闸门但默认关闭；DSH 宿主连 agent 维度都不感知\"。逐条回源自 I:\\VMsShare\\_src-compare\\codex 与 DSH 安装目录复核，注意不得被写成\"Codex 有分档预算\"。同时复核 `AgentRoleOverrides`（codex-rs/core/src/agent/role.rs:36-48）是否确无上下文/压缩字段。\n(2) §5 附录新增的逐字片段：全部与源码逐字核验，行号精确，片段 ≤15 行。\n(3) t5 §2 的 5 处修正在定稿中已落实且无回退：t3 的 profile 依据改写、M16 引用区间、M17 read_item 死指针、M6 定义/调用点、引用格式。\n(4) t6 新增改进建议的落点是否准确：凡声称\"改某组件/某文件/某层\"的，回源确认该文件或组件确实存在、确实缺少该能力、且插件层无法单方面实现（区分 dsh-agent-teams 插件层 / 宿主压缩栈 / harness 核心）。\n(5) 是否残留 t3 那 4 项 UNVERIFIED 被当作已生效断言使用。\n\n判定标准与 t5 一致：默认怀疑，给出 成立/不成立/部分成立 + 证据路径行号；发现错误必须写清错误原文、正确事实与位置。最后给出：定稿是否可用于决策，以及 t5 结论中哪些部分对修订版已失效。",
+      "status": "completed",
+      "assignee": "verifier",
+      "dependencies": [
+        "t6"
+      ],
+      "attempt": 2,
+      "createdAt": 1791734765822,
+      "updatedAt": 1791735604663,
+      "kind": "work",
+      "acceptance": [
+        "M15 改写后的结论逐条复核（含\"默认关闭\"限定），给出 成立/不成立/部分成立",
+        "§5 附录新增的逐字片段全部与源码逐字核验，行号精确",
+        "t5 §2 列出的 5 处修正在定稿中确认已落实，无回退",
+        "t6 新增的改进建议凡含具体文件/行号/组件名的，均回源复核",
+        "t7 发现与 t5 结论冲突处单独列出",
+        "明确指出 t5 对修订版哪些部分的结论已失效或不适用"
+      ],
+      "deliverables": [
+        "I:\\VMsShare\\context-compare\\t7-incremental-verification.md"
+      ],
+      "reassigning": false,
+      "attemptId": "983bc92c-a84c-4165-b33a-ff901201e201",
+      "output": "t7 增量核验完成（attempt 2）。交付物：I:\\VMsShare\\context-compare\\t7-incremental-verification.md（含可复现脚本 t7-appendix-verify.ps1，已修好上一轮的 PowerShell 语法/搜索 bug）。全程只读，未改 t1–t6 与两个被测仓库。\n\n**总体判定：定稿（t4 226 行 + t6 + README）可用于决策。** 机制事实层全部回源成立；3 处待修正均不影响任何机制结论。\n\n必须修正 3 处：\n- **F1（硬伤）**：`codex-rs/core/src/guardian/review.rs:151-153` 三处引用（t4:33、t4:163、t6:35）均少一行——代码块含 `:154` 的收尾 `}`，正确区间 **`151-154`**。逐字内容本身正确（脚本判定 VERBATIM 但 range-length mismatch）。\n- **F3（自相矛盾）**：t4 类别④第 1 条（`t4:72`）仍写 `compact.rs:574,677`，而主表 `t4:24` 已按 t5 改为「定义 :574 / 调用 :384 / 透传 :386→:677-688」，且 `t4:136` 台账声明已改 ⇒ 修正未同步。\n- **F2（格式）**：`t4:6` 自定「凡引用 §5 附录的格都在格内标注『来源：§5』」，但 M15 格（`t4:33`）只写了「来源：本格证据由船长补充取证提供…」，无字面 `§5`。\n\n核验结果：\n1) **M15 改写成立**：`AgentRoleOverrides`（role.rs:36-48，逐字 13 行、无任何上下文/压缩字段）成立；子代理闸门（child_config.rs:132-141）成立；`default_enabled: false`（features/src/lib.rs:1481-1486）成立且 t4:226 / t6:35 / README §1.2 三处**均带「默认关闭」限定**，全文无「Codex 有分档预算」写法；DSH 宿主零 agent 维度分支成立。仅 1.4 的行号区间需改。\n2) **§5 附录**：5 段逐字片段，4 段逐字命中被引用行号，1 段（review.rs）内容逐字一致但区间 off-by-one；全部 ≤15 行。另核 t4:194「非测试代码仅 child_config.rs:140 与 review.rs:153 两处写点」成立（其余 70+ 处全在 tests/）。\n3) **t5 五处修正**：profile 依据改写（t3:692-704+827、t4:30/50/133/137）、M16 区间（t4:34）、M17 read_item（t4:35）、M6 主表（t4:24）均已落实无回退；第 5 处按 t6:20/22/112 + README:47 明示为部分落实（非隐瞒）；M6 留有类别④回退（F3）。\n4) **t6 建议落点全部回源成立**：建议1 宿主落点真实且插件确无压缩句柄（src/**.ts 对 ctx.compaction 0 命中、package.json 无 dependencies）；建议2 tools.ts:2405-2409 逐字命中；建议3 口径限定带全；建议4 tools.ts:2842 `slice(0,300)` 命中；建议5 lib/index.js:861-872/927-934 命中；「未声称已实现」声明到位。\n5) **t3 的 4 项 UNVERIFIED 未被当作生效断言**（t4:107 完整照抄 + 明令禁止、README:48 再标注）。\n\n**与 t5 的冲突/失效**：C1 t5「M15 Codex 侧证据不足」已失效（被 §5 附录正确取代）；C2 t5「5 处必须修正」部分失效（第 5 处已被 t6 明示降为待办；另 4 处 3 完全落实、1 留回退 F3）；C3 t5「M12 依据链有错」仍成立且已修复；C5 §5 附录 / M15 改写 / t6 建议落点为 t5 未覆盖范围，以 t7 为准。\n\n**船长交办的 3 条锚点更正，一条需反向更正**：(a) memberProvider 仅两处（cordis.yml:1274 + 插件包 cordis.patch.yml:21）—— 成立，`dsh-web-app\\cordis.patch.yml:21` 实为空行（personaPrefix 在 :18-20），船长自纠正确；(b) 船长称 README 的 `:185` 不对 —— **不成立**：`src/index.ts:179`/`:190` 确是协议块起止，但 README 注释的两个鉴别短语（`every takeover is one ready task at a time`、`never yield with captain-owned work open`）**都在 :185**，故 `:185` 正确，只需可选的清晰度增强（`:179-190 中的 :185`），**不应列为必须修正**；(c) 四实验版包零命中、插件 :188-189 逐字命中 —— 成立（我按 .js/.cjs/.mjs 独立复跑四包全零命中）。",
+      "changedPaths": [
+        "context-compare/t7-incremental-verification.md"
+      ],
+      "acceptanceResults": [
+        {
+          "criterion": "M15 改写后的结论逐条复核（含\"默认关闭\"限定），给出 成立/不成立/部分成立",
+          "status": "passed",
+          "evidence": "t7-incremental-verification.md §1 逐分句判定：1.1 AgentRoleOverrides role.rs:36-48 逐字13行、无上下文/压缩字段 成立；1.2 child_config.rs:132-141 闸门 成立；1.3 feature default_enabled:false（features/src/lib.rs:1481-1486）+ t4:226/t6:35/README §1.2 三处均带「默认关闭」限定 成立；1.4 guardian/review.rs 同一模式 部分成立（实际区间 151-154，见 F1）；1.5 dsh-compaction-basic 对 origin===/delegationDepth/parentSession/subagent 零命中（仅 L249/L880 文案）成立；1.6「共同空白」分类 ① 成立；1.7 反向检查：全文无「Codex 有分档预算」写法 未被写歪。"
+        },
+        {
+          "criterion": "§5 附录新增的逐字片段全部与源码逐字核验，行号精确",
+          "status": "passed",
+          "evidence": "t7-appendix-verify.ps1 对 5 个 rust 代码块做逐字符比对 + 严格定位到被引用行号：5.1 child_config.rs:135-141、5.3 role.rs:36-48、5.4 features/src/lib.rs:1481-1486、5.5 child_config.rs:142-145 均 VERBATIM@CITED-POSITION；5.2 review.rs:151-153 内容逐字一致但区间 off-by-one（块含 :154 的收尾 }）⇒ 列为 F1 必须修正，正确区间 :151-154。全部片段 ≤15 行（7/4/13/6/4）。另核 t4:194「非测试代码仅两处写点」 成立（其余 70+ 处全在 tests/）。"
+        },
+        {
+          "criterion": "t5 §2 列出的 5 处修正在定稿中确认已落实，无回退",
+          "status": "passed",
+          "evidence": "t7 报告 §3：第1处（t3 692-704 + 827、t4:30/50/133/137）✅、第2处（t4:34 M16 引用区间 37-41/71-82/290-292/28）✅、第3处（t4:35 M17 166-176、required 175）✅、第4处 主表 t4:24 ✅ 但类别④ t4:72 留下回退（仍写 compact.rs:574,677，与 t4:136 台账自相矛盾）⇒ F3；第5处按 t6:20/22/112 与 README:47 明示为部分落实（非隐瞒）。"
+        },
+        {
+          "criterion": "t6 新增的改进建议凡含具体文件/行号/组件名的，均回源复核",
+          "status": "passed",
+          "evidence": "t7 报告 §4 逐条回源：建议1 落点 lib/index.js:124-134 存在且无 agent 分支，插件侧 src/**.ts 对 ctx.compaction 0 命中、package.json 无 dependencies ⇒ 插件确实拿不到压缩句柄，落点必须在宿主/上游 成立；建议2 tools.ts:2405-2409 逐字命中（slice(0,10)+mailboxContent）、:2415-2421 ack 成立；建议3 lib/index.js:128-134/927-934 且 20k 口径限定已带全 成立；建议4 tools.ts:2842 `task.output.slice(0,300)` 成立；建议5 lib/index.js:861-872/927-934 成立；§3 不建议照搬与 §3.1 引用的 Codex 行号逐一命中；建议3 前提 format.d.ts:42-53 HeaderLine 含 origin/delegationDepth 成立。未发现「把设计写成已实现」。"
+        },
+        {
+          "criterion": "t7 发现与 t5 结论冲突处单独列出",
+          "status": "passed",
+          "evidence": "t7 报告 §0 冲突对照表 C1–C5：C1 t5「M15 Codex 侧证据不足」已失效（被 §5 附录正确取代）；C2 t5「必须修正 5 处」部分失效（第5处被 t6 明示降为待办，另 4 处 3 完全落实、1 留回退 F3）；C3 t5「M12 依据链有错」仍成立且已修复；C4 抽查 18 条机制事实判定仍成立；C5 M15 改写/§5 附录/t6 建议落点为 t5 未覆盖范围。"
+        },
+        {
+          "criterion": "明确指出 t5 对修订版哪些部分的结论已失效或不适用",
+          "status": "passed",
+          "evidence": "t7 报告 §0 与 §8.4：失效 2 处（M15「证据不足」、5 处修正之第 5 处部分失效）；不适用/无覆盖 1 类（§5 附录逐字、M15 改写、t6 建议落点，t5 明确未覆盖，以 t7 为准）。另明确 t5 的 132 处引用机械审计结论对新版仍适用（新版审计仅 1 处 bare-name 误报，非死链）。"
+        }
+      ],
+      "commandsRun": [
+        {
+          "command": "pwsh -NoProfile -File I:\\VMsShare\\context-compare\\t7-appendix-verify.ps1",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "对 t4 §5 附录 5 个 rust 代码块做逐字符比对 + 严格定位到被引用行号：5.1/5.3/5.4/5.5 = VERBATIM@CITED-POSITION；5.2 review.rs:151-153 = range-length mismatch（块含 :154 的 }，源文件 154 行确为收尾），逐字内容仍一致 ⇒ F1 off-by-one。"
+        },
+        {
+          "command": "pwsh -NoProfile -File I:\\VMsShare\\context-compare\\t5-anchor-audit.ps1",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "对定稿版 t4（226 行）重跑引用审计：132 处引用中唯一报缺失的是 t4:118 引用的 t5-verification-report.md（bare-name 解析误报，文件存在）⇒ 无死链。"
+        },
+        {
+          "command": "Get-ChildItem codex-rs -Recurse -Filter *.rs | Select-String 'model_auto_compact_token_limit\\s*='",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "非测试代码赋值点仅 child_config.rs:140 与 guardian/review.rs:153（均置 None）；其余 70+ 处均在 */tests*、guardian/tests.rs、step_settings_tests.rs 或 Some(...) 测试构造中 ⇒ 支持 t4:194 与 M15「无按角色分档」。"
+        },
+        {
+          "command": "Get-ChildItem 'C:\\Users\\ZYX\\.dsh\\profiles\\web' -Recurse -File | Select-String 'memberProvider'",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "profile 全树（277 文件）memberProvider 4 处：cordis.yml:1274 与插件包 cordis.patch.yml:21（均 memberProvider: spawn），加插件 lib/index.js:60（Schema 默认）与 :121（回退）。@deepseek-ai 各包 cordis.patch.yml 内 memberProvider 零命中；dsh-web-app\\cordis.patch.yml:21 为空行（personaPrefix 在 18-20）⇒ 船长自纠正确，任何 @deepseek-ai/* 包内写法均属错误。"
+        },
+        {
+          "command": "Get-ChildItem 四实验版包 -Recurse -Include *.js,*.cjs,*.mjs | Select-String 'Deployment requires explicit user confirmation' / 'Wait for all required tasks to be terminal'",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "dsh-experimental-agent-team（19 js）/ -tool-agent-team（1）/ -client-ui-agent-team（2）/ -profile（1）四包对两段协议文本全部零命中；插件 src/index.ts:188-189（lib/index.js:114-115）逐字命中，协议块起点 src/index.ts:179、收尾 :190 ⇒ 负向鉴别成立。"
+        },
+        {
+          "command": "Get-Content dsh-agent-teams\\src\\index.ts | Select 175-192; Get-ChildItem src\\*.ts | Select-String 'ctx\\.compaction'; Get-Content package.json",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "src/index.ts:179 = `return \\`AgentTeams captain protocol:`，:190 = `Tools: ${toolNames}...`；『every takeover is one ready task at a time』与『never yield with captain-owned work open』均在 :185 ⇒ README:9 的 :185 锚点在注释这两个鉴别短语时正确（不应列为必须修正）。插件 src/**.ts 对 ctx.compaction 0 命中，package.json 无 dependencies 字段（仅 35 个 devDependencies）⇒ 建议1『插件层拿不到压缩句柄』成立。"
+        }
+      ]
+    },
+    {
+      "id": "t8",
+      "subject": "定向修补 F1/F2/F3：review.rs 区间、类别④口径同步、M15 格来源标注",
+      "description": "按 t7 核验结论做三处定向修补（F1/F2/F3）。全部为行号与格式修正，禁止改动任何机制结论、禁止重写段落。\n\n【F1 硬伤】`codex-rs/core/src/guardian/review.rs` 的引用区间 151-153 少一行，代码块含 `:154` 的收尾 `}`，正确区间为 **151-154**。逐字内容本身正确，只改区间。\n需改的位置（仅此三处）：\n- `t4-mechanism-matrix.md:33`\n- `t4-mechanism-matrix.md:163`\n- `t6-improvement-plan.md:35`\n\n【F3 自相矛盾】`t4-mechanism-matrix.md:72`（类别④第 1 条）仍写 `compact.rs:574,677`，与主表 `t4:24` 已改口径及 `t4:136` 台账声明矛盾。请把该处同步为与主表 t4:24 一致的三段式表述：**定义 `compact.rs:574` / 调用 `:384` / 透传 `:386`→`:677-688`**。\n\n【F2 格式】`t4-mechanism-matrix.md:6` 自定规则「凡引用 §5 附录的格，都在格内标注\"来源：§5\"」，但 M15 格（`t4:33`）现写作「**来源**：本格证据由船长补充取证提供（…）逐字片段见 §6」。请在保持原句信息的前提下，让该格出现字面 **来源：§5**（可写作例如「**来源：§5**（本格证据由船长补充取证提供…）」），不得删除原有可回溯说明。\n\n【严禁改动】`t7-incremental-verification.md` 与 `t5-verification-report.md` 中出现的 `151-153` / `574,677` 是**核验报告对既存错误的审计留痕**，必须原样保留。改掉它们会使审计记录失真。同样不得改动 t1/t2/t3。\n\n【完成要求】报告：改了哪几个文件、各几行、改前改后的精确文本；用 grep 复核 `review\\.rs:151-153` 在 t4/t6 中已归零、在 t5/t7 中仍在；并确认 t7 的核验结论不因本次修补而失效（若你认为某处修补会触及 t7 已核验内容，请明确指出并说明影响）。",
+      "status": "completed",
+      "assignee": "synthesizer",
+      "dependencies": [],
+      "attempt": 1,
+      "createdAt": 1791736474927,
+      "updatedAt": 1791736741238,
+      "kind": "work",
+      "acceptance": [
+        "t4:33、t4:163、t6:35 三处 review.rs 区间均已改为 151-154",
+        "t4:72 的 compact.rs:574,677 已同步为与主表 t4:24 一致的三段式表述",
+        "t4:33 的 M15 格已出现字面 来源：§5",
+        "t7-incremental-verification.md 与 t5-verification-report.md 未被改动",
+        "修补后报告精确改动行数与 grep 复核结果"
+      ],
+      "deliverables": [
+        "I:\\VMsShare\\context-compare\\t4-mechanism-matrix.md",
+        "I:\\VMsShare\\context-compare\\t6-improvement-plan.md"
+      ],
+      "attemptId": "e77409b7-905e-41d5-a815-988ea37cb99e",
+      "reassigning": false,
+      "output": "t8 定向修补完成：F1/F2/F3 三处全部落实，共改 **2 个文件、4 行**，行数不变（t4 226 行、t6 116 行），未改动任何机制结论、未重写段落。\n\n【F1 区间 151-153 → 151-154（3 处）】\n- 回源确认：`review.rs:151` = `if review_model.model != context.model_info.slug {`，`:152-153` = 两行 `= None;`，**`:154` = 收尾 `}`** ⇒ 船长 off-by-one 判定成立。\n- t4:33 改前 `（`codex-rs/core/src/guardian/review.rs:151-153`）` → 改后 `（`codex-rs/core/src/guardian/review.rs:151-154`）`\n- t4:163 改前 `` `codex-rs/core/src/guardian/review.rs:151-153`： `` → 改后 `` `codex-rs/core/src/guardian/review.rs:151-154`： ``\n- t6:35 改前 `（`guardian/review.rs:151-153`）` → 改后 `（`guardian/review.rs:151-154`）`\n\n【F2 M15 格来源标注（t4:33，1 处）】\n- 改前：`。**来源**：本格证据由船长补充取证提供（同一 commit `a07c8ebd`，与 t1 同等标准），逐字片段见 §6；t1 原文此格为 UNVERIFIED`\n- 改后：`。**来源：§5**（本格证据由船长补充取证提供，同一 commit `a07c8ebd`，与 t1 同等标准；逐字片段见 §5 附录）；t1 原文此格为 UNVERIFIED`\n- 原句可回溯信息（授权来源、commit、t1 同等标准、t1 原文 UNVERIFIED）全部保留；顺带修掉指向旧编号的 `见 §6`（附录已在更早一轮重编号为 §5）。\n\n【F3 类别④口径同步（t4:72，1 处）】\n- 改前：`**用户消息 token 配额**（\"注释过的用户消息\"集合，`compact.rs:574,677`）`\n- 改后：`**用户消息 token 配额**（\"注释过的用户消息\"集合，定义 `compact.rs:574` / 调用 `:384` / 透传 `:386`→`:677-688`）`\n- 与主表 t4:24 及 §4.2 台账（t4:136）口径一致；`574,677` 在 t4 中已归零。\n\n【grep 复核矩阵】\n| 文件 | `review.rs:151-153` | `151-154` | `574,677` |\n|---|---|---|---|\n| t4-mechanism-matrix.md | **0** | 2 | **0** |\n| t6-improvement-plan.md | **0** | 1 | 0 |\n| t5-verification-report.md | **1（保留）** | 0 | 0 |\n| t7-incremental-verification.md | **4（保留）** | 1 | **3（保留）** |\n\n【t7 结论是否失效】**不失效，且本次修补正是执行 t7 §8 的\"若只修一处先修 F1\"。** 逐项核对：\n1. t7 §8 判定「定稿可用于决策…3 处必须修正，无一处影响机制事实结论」；本次修补的对象与 t7 §6 的 F1/F2/F3 逐条对应，无一处触及已核验的机制事实。\n2. t7 已核验内容未被改动：机制事实层（M15 改写、§5 附录 5 段逐字、t6 建议 1–5 落点、§3 不建议照搬清单）、口径层（第三方包约束、未声称已实现）在本轮**零改动**。\n3. **行号稳定性**：4 处修改均为行内文本替换，未增删行 ⇒ t7 报告中的 `t4:33`/`t4:72`/`t4:163`/`t6:35` 等行号引用全部仍然有效。\n4. 唯一的语义位移需记录：t7 §F2 称 M15 格\"没有出现字面 §5，同文档 t4:104 才写了来源：§5 附录\"。F2 修补后该格出现字面 `来源：§5`，**t7 的该条 finding 由此变更为已修复状态**（这是本次修补的目的，非反证）。\n5. t5/t7 报告本身逐字节未改（sha256 与 mtime 均与修补前一致），审计留痕完整：t5 的 `151-153`×1、t7 的 `151-153`×4 与 `574,677`×3 原样保留。\n\n【未改动清单】t1/t2/t3/t5/t7/README 本轮均未写入；被测仓库（codex / dsh-agent-teams）全程只读。",
+      "changedPaths": [
+        "I:\\VMsShare\\context-compare\\t4-mechanism-matrix.md",
+        "I:\\VMsShare\\context-compare\\t6-improvement-plan.md"
+      ],
+      "acceptanceResults": [
+        {
+          "criterion": "t4:33、t4:163、t6:35 三处 review.rs 区间均已改为 151-154",
+          "status": "passed",
+          "evidence": "grep 矩阵：t4 `review\\.rs:151-153`=0 且 `151-154`=2（L33、L163）；t6 `151-153`=0 且 `151-154`=1（L35）。t4:33 现为 `（`codex-rs/core/src/guardian/review.rs:151-154`）`；t4:163 现为 `` `codex-rs/core/src/guardian/review.rs:151-154`： ``；t6:35 现为 `（`guardian/review.rs:151-154`）`。已回源确认正确区间：review.rs:151-154 才含收尾 `}`（:154 = `    }`）。"
+        },
+        {
+          "criterion": "t4:72 的 compact.rs:574,677 已同步为与主表 t4:24 一致的三段式表述",
+          "status": "passed",
+          "evidence": "t4:72 现为「用户消息 token 配额**（\"注释过的用户消息\"集合，定义 `compact.rs:574` / 调用 `:384` / 透传 `:386`→`:677-688`）」；`574,677` 在 t4 中已归零（0 命中），与主表 t4:24 同口径、与 t4 §4.2 台账（L136）声明一致。"
+        },
+        {
+          "criterion": "t4:33 的 M15 格已出现字面 来源：§5",
+          "status": "passed",
+          "evidence": "t4:33 现含字面 `**来源：§5**`，完整句为「**来源：§5**（本格证据由船长补充取证提供，同一 commit `a07c8ebd`，与 t1 同等标准；逐字片段见 §5 附录）；t1 原文此格为 UNVERIFIED」。原有可回溯信息（授权来源、commit、t1 同等标准、t1 原文 UNVERIFIED）全部保留；同句还修掉了指向旧编号的 `见 §6`（附录现为 §5）。"
+        },
+        {
+          "criterion": "t7-incremental-verification.md 与 t5-verification-report.md 未被改动",
+          "status": "passed",
+          "evidence": "t5 sha256=60A943F2…（23,329 bytes）、t7 sha256=DD33DE85…（18,346 bytes），与本轮开始时实测值逐字节一致；mtime 仍为 t7 00:18:48 / t5 00:01:04，均早于本轮编辑（00:35、00:36）。grep 留痕完整：t5 `review.rs:151-153`=1、t7 `review.rs:151-153`=4 与 `574,677`=3，与修改前一致。"
+        },
+        {
+          "criterion": "修补后报告精确改动行数与 grep 复核结果",
+          "status": "passed",
+          "evidence": "共改 2 个文件、4 行（t4 3 行：L33/L72/L163；t6 1 行：L35），**行数不变**（t4 226 行、t6 116 行），未增删任何行。结构自检：t4 49 个表格行 / t6 14 个表格行，反引号配对 0 处不平衡。"
+        }
+      ],
+      "commandsRun": [
+        {
+          "command": "pwsh: 回源确认 F1 区间 —— 读取 codex-rs/core/src/guardian/review.rs:150-157",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": ":151 `if review_model.model != context.model_info.slug {`、:152-153 两行 `= None;`、**:154 `    }`** ⇒ 正确区间为 151-154，船长的 off-by-one 判定成立"
+        },
+        {
+          "command": "pwsh: 全目录定位 F1/F3 命中点 —— Select-String 'review\\.rs:151-153|574,677' 扫描 t4/t6/t3/README/t5/t7",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "修复前：t4 命中 3 处（L33 行内、L163 代码块标题）、t6 1 处（L35）、t5 1 处、t7 4+3 处；本次只改 t4/t6 的 4 处"
+        },
+        {
+          "command": "pwsh: 修复后 grep 复核矩阵 —— 逐文件统计 'review\\.rs:151-153' / '151-154' / '574,677'",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "t4: 0 / 2 / 0；t6: 0 / 1 / 0；t5: 1 / 0 / 0；t7: 4 / 1 / 3 ⇒ 在 t4/t6 归零、在 t5/t7 保留"
+        },
+        {
+          "command": "pwsh: 未被改动文件的完整性校验 —— Get-FileHash SHA256 + mtime 比对",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "t5 sha256=60A943F2…、t7 sha256=DD33DE85…，与本轮起点实测值一致；mtime 未变；t1/t2/t3 也未在本轮被写入"
+        },
+        {
+          "command": "pwsh: 结构自检 —— t4/t6 表格行数与反引号配对审计",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "t4 49 行表格 / t6 14 行表格，0 处 UNBALANCED；t4 仍 226 行、t6 仍 116 行"
+        }
+      ]
+    },
+    {
+      "id": "t9",
+      "subject": "Codex 跨会话记忆机制取证：memories 提炼触发/数据源/产物形态/存储/检索注入/生命周期",
+      "description": "第一轮 t1 已确认 `codex-rs/memories/**` 与 `codex-rs/state/src/runtime/memories.rs` 存在，但明确未取证（t1 §12 第 5 项）。本任务把 Codex 的跨会话长期记忆机制查清。仓库：`I:\\VMsShare\\_src-compare\\codex` @ commit a07c8ebd（只读，不得修改）。起点：`codex-rs/memories/**`（含 `write/phase1.rs`、`write/runtime.rs`）、`codex-rs/state/src/runtime/memories.rs`、`codex-rs/rollout/**`、`codex-rs/message-history/**`。\n\n需覆盖 7 个维度：\n(1) 记忆提炼的触发时机：何时/由谁触发（压缩后？会话结束？定时？用户操作？），入口函数与调用链。\n(2) 数据来源：从 rollout / 会话事件 / 消息历史中取什么，有无筛选或截断。\n(3) 提炼产物形态：结构化字段还是自然语言文本，字段清单与大小限制。\n(4) 存储位置与格式：磁盘/BLOB/服务端，具体路径或表结构，有无版本标记。\n(5) 检索/注入接口：模型如何读到记忆，是工具、还是系统提示注入（PromptSlot），有无检索 API 与匹配方式（字面/语义）。\n(6) 生命周期：更新、去重、淘汰、容量上限，是否会随会话增长。\n(7) 与第一轮已取证机制的关系：明确区分 memory 与 notes（model-writable 持久笔记）、与 history（跨窗口检索）、与 compact（压缩）三者的边界，不得混写。\n\n【约束】每条结论 = 相对仓库根 POSIX 路径 + 行号 + ≤15 行逐字片段。查不到写 UNVERIFIED 并列出检索位置与关键词。禁止外推。产出目录：`I:\\VMsShare\\context-compare\\memories\\`。用户明确要求：本轮不适用 AGENTS.md 编号归档工作流，只做本任务。",
+      "status": "completed",
+      "assignee": "codex-researcher",
+      "dependencies": [],
+      "attempt": 1,
+      "createdAt": 1791736511752,
+      "updatedAt": 1791737457967,
+      "kind": "work",
+      "acceptance": [
+        "覆盖下列 7 个维度，每维度至少一条带 路径+行号 的证据",
+        "每条结论附 ≤15 行逐字代码片段（与仓库当前内容逐字一致）",
+        "无法确证项标注 UNVERIFIED 并列出检索位置",
+        "明确写出「跨窗口持久笔记/记忆」的实现载体与调用链，禁止只写概念"
+      ],
+      "deliverables": [
+        "I:\\VMsShare\\context-compare\\memories\\m1-codex-memories-evidence.md"
+      ],
+      "attemptId": "4bfa1937-7c6b-4f1b-a709-20bbb6783d53",
+      "reassigning": false,
+      "output": "交付物: I:\\VMsShare\\context-compare\\memories\\t9-codex-memories-evidence.md（824 行 / 39 KB），只读取证 openai/codex @ a07c8ebd（git log 实测 a07c8ebd57feedc4cf5dfe854c8e9101de54186b，2026-10-11T12:38:29Z）。覆盖 7 个必需维度 + §0 端到端调用链，每条结论附相对仓库根 POSIX 路径 + 行号 + <=15 行逐字片段；§8 列 7 项 UNVERIFIED（含检索位置）；§9 复现命令。\n\n一句话结论：跨会话记忆不是\"模型写的笔记\"，而是「两阶段后台流水线 + 独立 SQLite 库 + 磁盘工件目录 + git 基线 + developer 指令注入 + 可选只读工具」。\n\n实现载体与调用链（§0）：\napp-server/src/request_processors/turn_processor.rs:704-716（root 会话 turn 提交；唯一调用点）\n→ codex_memories_write::start_memories_startup_task（memories/write/src/start.rs:24）\n→ 闸门 start.rs:33-38（ephemeral / Feature::MemoryTool / 非 subagent）+ start.rs:59-63（state DB 可用）\n→ ensure_layout + seed_extension_instructions + phase1::prune（start.rs:64-77）→ guard::rate_limits_ok（:79-86）\n→ phase1::run（phase1.rs:56）逐 rollout 调模型抽取 → 写 memories_1.sqlite 的 stage1_outputs 表\n→ phase2::run（phase2.rs:49）同步 ~/.codex/memories{,_v2}/ 工件 + git diff（phase2.rs:122）→ 起 consolidation 子代理（runtime.rs:399-415，InternalSessionSource::MemoryConsolidation）重写 MEMORY.md / memory_summary.md\n读取侧：ext/memories/src/extension.rs:56-102 读 memory_summary.md（prompts.rs:35-49，截断到 2500 token）→ PromptFragment::developer_policy（extension.rs:95-98）→ core/src/session/mod.rs:4386-4388 developer_sections。\n\n七维要点：\n1. 触发：root 会话新 turn 被接受后异步触发（turn_processor.rs:704-716），不是压缩后/会话结束/定时器；Feature::MemoryTool `default_enabled: false`（features/src/lib.rs:1267-1272）。\n2. 数据源：只处理交互式会话 rollout（rollout/src/lib.rs:88-95 的 Cli/VSCode/atlas/chatgpt）；默认每启动最多 2 条、年龄 <=10 天、空闲 >=6 小时（config/src/types.rs:55-64）；条目级白名单 rollout/src/policy.rs:104-125；三层截断（单工具输出 2000 token、单行 10000 字节、整体 70% 有效窗口或 150k 兜底，rollout_input.rs:22-25 + lib.rs:94/:101）。\n3. 产物：相位 1 严格 JSON（V1 含 raw_memory/rollout_summary/rollout_slug；V2 去掉 raw_memory，phase1_output.rs:61-82，V2 summary 截到 9000 字节）；相位 2 自然语言 Markdown 工件（consolidation.md:20-35），并被代码硬校验：MEMORY.md 必须存在（V1）、memory_summary.md 首行必须 `v1` 且 <10 000 字节、V2 需四个固定标题（workspace.rs:76-129）。\n4. 存储：磁盘 ~/.codex/memories/ 与 ~/.codex/memories_v2/（memory_version.rs:15-22），DB 为独立库 memories_1.sqlite / memories_v2_1.sqlite（state/src/sqlite.rs:36/:97-112）；表 stage1_outputs（memory_migrations/0001_memories.sql:1-12，thread_id 主键）。版本标记双层：记录级首行 `v1` + 存储级 V1/V2 独立库与目录。旧 state DB 内表已由 migrations/0035_drop_memory_tables.sql 删除。\n5. 检索/注入：主通道是 developer 指令注入（memory_summary.md 内容，2500 token 上限，memories.instructions content kind）；次通道是 4 个工具 memories.add_ad_hoc_note / list / read / search，**默认关闭**（config/src/types.rs:384 `dedicated_tools: false`，门控 extension.rs:146）。匹配是**字面包含**（local/search.rs:284-290 `.contains()`），可配 case_sensitive（默认 true）与 normalized（去非字母数字），三种 match_mode，结果上限 200 / 读取 20000 token。模型回答里的 `<oai-mem-citation>` 会回流更新 usage_count（stream_events_utils.rs:186-213 + memories/read/src/citations.rs）。\n6. 生命周期：thread_id 主键 + `ON CONFLICT DO UPDATE ... WHERE excluded.source_updated_at >= ...` 去重/防回退（state/src/runtime/memories.rs:908-924）；淘汰两套（30 天未使用且未入选相位 2，memories.rs:413-433，批 200；相位 2 按 usage_count DESC 取 top-256，memories.rs:438-452）；相位 2 是否运行由 git 脏度决定（phase2.rs:122），水位线只记账；容量不随会话增长（每 thread 一行 + top-N + 摘要 <10 000 字节 + 注入再截 2500 token）。\n7. 边界（§7 对照表）：memories = 跨会话、后台流水线写、本地 SQLite+磁盘、30 天/top-256 收敛；notes = 同 rollout 内、模型可写文件、服务端后端 alpha/notes/v2、单文件 1e6 字节；history = 同 rollout 内、只读、服务端后端 alpha/history/v2、字面包含；compact = 同 window 内替换历史、无持久化。四个最易混的判断点（是否跨会话 / 谁是写入主体 / 存储介质 / 触发时机）已逐条给出证据行号。\n\n与 t1 的衔接：t1 §12 第 5 项把 memories 标 UNVERIFIED，本报告补齐；并明确 ext/memories（本任务）与 ext/history-notes（t1 §8/§9 的 notes+history，最大 4000 字节 hint）是**两个不同 crate、两套机制**，命名空间分别为 `memories` 与 `notes`/`history`。\n\n验收 4 项全部 passed（详见 task acceptanceResults）。无阻塞。",
+      "changedPaths": [
+        "context-compare/memories/t9-codex-memories-evidence.md"
+      ],
+      "acceptanceResults": [
+        {
+          "criterion": "覆盖下列 7 个维度，每维度至少一条带 路径+行号 的证据",
+          "status": "passed",
+          "evidence": "I:\\VMsShare\\context-compare\\memories\\t9-codex-memories-evidence.md 第 1-7 章逐维取证：(1)触发 app-server/src/request_processors/turn_processor.rs:704-716 + memories/write/src/start.rs:33-38/:59-63/:77-91；(2)数据源 memories/write/src/phase1.rs:130-146 + rollout/src/lib.rs:88-95 + rollout/src/policy.rs:104-125 + rollout_input.rs:22-25/:27-35；(3)产物 phase1_output.rs:61-82 + workspace.rs:76-129 + consolidation.md:20-35；(4)存储 memories/write/src/lib.rs:118-120 + protocol/src/memory_version.rs:15-22 + state/src/sqlite.rs:36/:97-112 + state/memory_migrations/0001_memories.sql:1-12；(5)检索 ext/memories/src/prompts.rs:35-49 + extension.rs:95-98 + local/search.rs:284-290 + tools/mod.rs:35-57；(6)生命周期 state/src/runtime/memories.rs:21-27/:908-924/:413-433/:438-452 + config/src/types.rs:55-64；(7)边界对比表（§7）逐行给出 memories|notes|history|compact 四者的载体/写者/读者/生命周期与各自证据路径。另 §0 给出完整调用链(触发→相位1→相位2→读取注入)。"
+        },
+        {
+          "criterion": "每条结论附 <=15 行逐字代码片段（与仓库当前内容逐字一致）",
+          "status": "passed",
+          "evidence": "全部片段 <=15 行；最长两段各 14 行（phase1_output.rs:61-82 的 output_schema 两分支、state/src/sqlite.rs:97-112 的 MEMORIES_DB/MEMORIES_V2_DB）。片段均用 read 从工作区取回。自查中修正 1 处引用（ext/memories/src/tools/list.rs 原写 :64-67，逐行核对后改为 tools/mod.rs:55-57 + 各工具 supports_parallel_tool_calls 行号）；另用逐行输出复核 extension.rs:93-100、workspace.rs:100-115、tools/mod.rs:53-60 与引用一致。"
+        },
+        {
+          "criterion": "无法确证项标注 UNVERIFIED 并列出检索位置",
+          "status": "passed",
+          "evidence": "§8 列出 7 项 UNVERIFIED，每项写明已知部分 + 已检索位置/关键词：phase1 重试耗尽边界（已检索 state/src/runtime/memories.rs:27、phase1.rs:324-344）、skills/ 工件校验（workspace.rs:76-115 只校验 MEMORY.md/memory_summary.md）、guard::rate_limits_ok 完整逻辑（guard.rs 58 行 + types.rs:58）、extract_model 使用点未定位、V2 raw_memory 为空时的 full 表现（phase1_output.rs:44-47 + storage.rs:73）、memories/read/src/lib.rs 导出面、README 过期路径 codex-rs/core/src/memories/（已用 Test-Path 验证不存在）。"
+        },
+        {
+          "criterion": "明确写出「跨窗口持久笔记/记忆」的实现载体与调用链，禁止只写概念",
+          "status": "passed",
+          "evidence": "§0 用代码块给出端到端调用链：turn_processor.rs:704-716（root 会话 turn 提交）→ start_memories_startup_task（start.rs:24）→ 闸门 start.rs:33-38/:59-63 → ensure_layout+seed+prune start.rs:64-77 → rate limit start.rs:79-86 → phase1::run（phase1.rs:56）写 stage1_outputs 表 → phase2::run（phase2.rs:49）同步 ~/.codex/memories*/ 工件 + git diff + 起 consolidation 子代理（runtime.rs:399-415，InternalSessionSource::MemoryConsolidation）；读取侧 MemoriesExtension::contribute_thread_context（extension.rs:56-102）读 memory_summary.md（prompts.rs:35-49，2500 token 上限）→ PromptFragment::developer_policy（extension.rs:95-98）→ session/mod.rs:4386-4388 developer_sections。载体明确为：独立 SQLite 库（memories_1.sqlite / memories_v2_1.sqlite）+ 磁盘目录 ~/.codex/memories{,_v2}/ + git 基线，与 notes（服务端后端）/history（服务端后端）/compact（会话内）严格区分。"
+        }
+      ],
+      "commandsRun": [
+        {
+          "command": "git -C I:\\VMsShare\\_src-compare\\codex log -1 --format='%H %cI'",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "输出 a07c8ebd57feedc4cf5dfe854c8e9101de54186b 2026-10-11T12:38:29Z，与任务描述（仓库 @ commit a07c8ebd）一致。"
+        },
+        {
+          "command": "Test-Path codex-rs\\core\\src\\memories; Get-ChildItem codex-rs\\core\\src -Directory | Where-Object { $_ -like '*memor*' }",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "返回 False 且无匹配目录，证实 memories/README.md:5-6 声称的编排目录 codex-rs/core/src/memories/ 在本 commit 不存在（文档过期），代码实际在 codex-rs/memories/write/src/。该发现已写入 §1.3 与 §8 第 7 项。"
+        },
+        {
+          "command": "Get-ChildItem codex-rs\\state\\migrations,codex-rs\\state\\memory_migrations -File | Select-String -Pattern 'stage1_outputs' -List",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "定位到两份迁移目录：memory_migrations/0001_memories.sql（独立 memories DB）与 migrations/0006..0035（state DB 内旧表，0035_drop_memory_tables.sql 已删除），支撑 §4.3 的存储迁移结论。"
+        },
+        {
+          "command": "Get-Content codex-rs\\ext\\memories\\src\\tools\\list.rs（与 extension.rs、tools/mod.rs 的 -Skip/-First 逐行输出核对）",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "逐行核对后发现原引用 list.rs:64-67 展示的是 supports_parallel_tool_calls 而非 exposure，已改引 tools/mod.rs:55-57（ToolName::namespaced）并标注三个工具的并行调用行号；同时复核 extension.rs:93-100 与 workspace.rs:100-115 与引用逐字一致。"
+        },
+        {
+          "command": "Get-Content I:\\VMsShare\\context-compare\\memories\\t9-codex-memories-evidence.md（行数/字节检查）",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "824 行 / 39390 字节，含 §0 调用链 + §1-§7 七个必需维度 + §8 UNVERIFIED 7 项 + §9 复现命令。"
+        }
+      ]
+    },
+    {
+      "id": "t10",
+      "subject": "DSH 侧持久化记忆取证：跨会话可读性/插件持久化边界/是否存在提炼机制",
+      "description": "取证 DSH 侧的持久化记忆能力，作为与 Codex memories 对照的另一半。延续第一轮 t2/t3 的分层纪律：严格区分【dsh-agent-teams 插件层】/【宿主压缩栈】/【DSH harness 核心】，不得混写。\n\n需覆盖 5 个维度：\n(1) 跨会话：新会话能否读到上一个会话的内容；`<DSH_HOME>\\sessions\\**` 的持久化格式是否可被新会话检索（只读取证，注意第一轮 t3 已确认格式为 `session.v4.jsonl.zstd` 多帧追加）。\n(2) dsh-agent-teams 插件持久化的内容边界：`team.json` + `inbox/*.jsonl` + `retired-members.json` 中哪些是跨会话可读的，模型在什么条件下能读到（是否只在被渲染进派发/status 时才进上下文）。\n(3) 宿主压缩栈是否产生任何可跨会话复用的记忆产物（压缩检查点是否留存、能否被回读）。\n(4) 是否存在任何\"从会话/工作区提炼长期记忆\"的机制（宿主插件、harness 核心、或 profile 配置层）。\n(5) 与第一轮结论的衔接：明确 notes（无）、history 检索（无）、spill 文件外置（有，但属单会话内）三者与\"跨会话记忆\"的区别。\n\n【约束】每条结论 = 路径 + 行号 + ≤15 行逐字片段；查不到写 UNVERIFIED 并列出检索位置。DSH 安装根与 `C:\\Users\\ZYX\\.dsh` 只读，不得修改。产出目录：`I:\\VMsShare\\context-compare\\memories\\`。用户明确要求：本轮不适用 AGENTS.md 编号归档工作流，只做本任务。",
+      "status": "completed",
+      "assignee": "dsh-researcher",
+      "dependencies": [],
+      "attempt": 1,
+      "createdAt": 1791736511868,
+      "updatedAt": 1791737555420,
+      "kind": "work",
+      "acceptance": [
+        "覆盖下列 5 个维度，各至少一条带 路径+行号 的证据",
+        "明确区分 dsh-agent-teams 插件 / 宿主压缩栈 / DSH harness 核心 三层归属",
+        "对「跨会话记忆」给出明确结论：存在、部分存在（并说明缺口）或未实现",
+        "无法确证项标注 UNVERIFIED，且不得用未取证行为填空"
+      ],
+      "deliverables": [
+        "I:\\VMsShare\\context-compare\\memories\\m2-dsh-persistent-memory-evidence.md"
+      ],
+      "attemptId": "75323ee3-0dfa-45a5-8674-43c6604df7ba",
+      "reassigning": false,
+      "output": "交付物：I:\\VMsShare\\context-compare\\memories\\t10-dsh-persistent-memory-forensics.md（14 段源码引用逐字核验，102 行比较，failures=0；另 4 个未标记块为运行态证据）。证据工具与日志：memories/event-vocabulary.mjs、memories/check-t10-evidence.mjs、memories/t10-snippet-verification.log。\n\n跨会话记忆总结论：**部分存在，且是\"显式引用式\"而非\"自动召回式\"**（缺口已在报告首部与 §6 逐项列明）。\n\n5 维结论（严格三层分层）：\n(1) 跨会话：存储格式全局可读（多帧 zstd JSONL，按 workspace 聚簇）；但无自动召回，全文检索被 profile 显式关闭（cordis.yml:100-104 `openAt: never`，语义见 dsh-session-query-sqlite/lib/types/index.d.ts:26-27,36-43）；唯一受控通路是用户显式引用（session-reference，≤3 引用/条、每源 ≥64 KiB，config.d.ts:1-7）；跨会话\"继承\"仅对 fork 血缘成立（format.d.ts:38-41，本机 53 个 session/end-seed）。\n(2) 【插件】边界：team.json + inbox/*.jsonl 磁盘上跨会话可读，但进上下文必须经三条渲染通路（派发提示 / agent_teams_status / mailbox 投递）；且渲染要求调用会话与团队存在 durable 身份或 fork 血缘（src/capabilities.ts:41-48），新 captain 会话默认读不到。归档目录**故意不含 team.json**（src/state.ts:1152-1157），只走 ?archived=1 面板路由（src/index.ts:271-273），模型不可达。本机 retired-members.json 与 archive 均不存在。插件团队事件（team/task 12、team/member 6、team/message 6）确实落盘于 captain 日志，但只在宿主认识该类型时写入（src/events.ts:39-54），且只服务 UI，不构成记忆。\n(3) 【宿主压缩栈】未产生可跨会话复用的记忆产物：compaction 检查点是**会话内**事件（checkpoint.d.ts:17-24；本机 58 会话中 compaction/start 27、summary 26、end 27，全部位于各自会话日志内），无跨会话索引；spill 外置属单会话内。\n(4) 提炼机制：**未实现**。全量 58 会话 / 35,652 记录 / 44 种事件类型中，note|memory|feedback 类型为 0（event-vocabulary.mjs）。所有\"像记忆\"的宿主机制都是同一会话或工作区文件级：goal（\"Same-session\"、\"backed exclusively by the owning session log\"）、message-feedback（maxNoteBytes 8192，0 条实例）、session-title、projection-cache、agent-instructions（AGENTS.md/CLAUDE.md，工作区文件）。\n(5) 衔接：notes（无）/ history 检索（无）/ spill 外置（有但单会话内）三者都不等于跨会话记忆——笔记需落在会话之外并被新会话读取、检索是读取手段而本机被关闭、spill 的 locator 只存在于产生它的会话消息里。\n\n自我纠错留痕（供下游采信）：初版子串扫描曾报出 `session/note` 命中，逐字符复核确认是我自己命令/推理文本里的字面量（type=assistant/message seq=1570/1575、tool/call seq=1571/1576），按类型精确统计后为 0。\n\nUNVERIFIED（§7，含检索位置）：session-query 精确读取 API 是否有未装载的模型工具封装、UI 是否提供历史会话一键插入、dsh_session_log 服务端是否形成可用记忆、archive 真实实例的可读性（本机无归档实例）。\n\n只读性：DSH 安装根自 00:35 起 0 文件被修改；插件仓库 git status 为空。本轮不适用 AGENTS.md 编号归档工作流（按用户要求）。",
+      "acceptanceResults": [
+        {
+          "criterion": "覆盖 5 个维度，各至少一条带 路径+行号 的证据",
+          "status": "passed",
+          "evidence": "(1) 跨会话：dsh-session-persistence-jsonl/lib/types/zstd.d.ts:1-6、format.d.ts:38-41；dsh-session-reference/lib/types/index.d.ts:1-6,30-38 与 config.d.ts:1-7（MAX_REFERENCES=3、DEFAULT_MAX_REFERENCE_BYTES=65536）；C:\\Users\\ZYX\\.dsh\\profiles\\web\\cordis.yml:100-104 与 dsh-session-query-sqlite/lib/types/index.d.ts:26-27,36-43（openAt:never）。(2) 插件边界：克隆 src/state.ts:1-14、src/capabilities.ts:41-48（跳过 archive、身份马匹配）、安装副本 lib/state.js:1095-1100、src/index.ts:271-273（归档仅面板）、src/events.ts:39-54（事件仅在宿主认识时写入），加本机 .agent-teams 实例结构。(3) 压缩栈跨会话产物：dsh-compaction/lib/types/checkpoint.d.ts:17-24 + 本机 58 会话中 compaction/* 事件计数（均在各自会话日志内）。(4) 提炼机制：全量事件词表 58 会话/35,652 记录/44 类型，note|memory|feedback 类型为 0。(5) 衔接：§5 三行定位表 + §6 能力矩阵。"
+        },
+        {
+          "criterion": "明确区分 dsh-agent-teams 插件 / 宿主压缩栈 / DSH harness 核心 三层归属",
+          "status": "passed",
+          "evidence": "全文每节标题与每条结论都带层级标签，并在 §6 能力矩阵逐行标注层级；关键归属：显式引用/检索/继承=fork → harness 核心；压缩检查点 → 宿主压缩栈；team.json/inbox/retired-members/归档 → dsh-agent-teams 插件。"
+        },
+        {
+          "criterion": "对「跨会话记忆」给出明确结论：存在、部分存在（并说明缺口）或未实现",
+          "status": "passed",
+          "evidence": "报告首部与 §6 给出明确结论：**部分存在**（显式引用式）。缺口逐项写明：无自动召回、全文检索被 profile 关闭（openAt:never）、跨会话继承仅 fork 血缘、插件状态需身份+渲染才进上下文、归档仅面板可见、压缩检查点无跨会话索引、无提炼机制。"
+        },
+        {
+          "criterion": "无法确证项标注 UNVERIFIED 并列出检索位置",
+          "status": "passed",
+          "evidence": "§7 列出 4 项 UNVERIFIED 并附检索位置：session-query 精确读取 API 是否有未装载的模型工具封装、UI 是否提供历史会话插入、dsh_session_log 服务端是否形成可用记忆、archive 真实实例的可读性（本机无归档实例）。"
+        },
+        {
+          "criterion": "DSH 安装根与 C:\\Users\\ZYX\\.dsh 只读，未修改",
+          "status": "passed",
+          "evidence": "DSH 安装根自本任务开始（2026-10-12 00:35）起 0 个文件被修改；被浏插件仓库 git status --porcelain 为空；本轮仅用 fs.readFileSync 解帧读取，未写入任何被测文件。"
+        }
+      ],
+      "commandsRun": [
+        {
+          "command": "node memories/check-t10-evidence.mjs memories/t10-dsh-persistent-memory-forensics.md <dshNodeModulesRoot> <dshHome> <dsh-agent-teams>",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "markers 14 / snippets ok 14 / lines compared 102 / unmarked blocks 4 (runtime evidence) / failures 0"
+        },
+        {
+          "command": "node memories/event-vocabulary.mjs 'C:\\Users\\ZYX\\.dsh\\sessions'",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "sessions=58 records=35652 distinctTypes=44；note/memory/feedback 事件类型为 0"
+        },
+        {
+          "command": "git -C I:\\VMsShare\\_src-compare\\dsh-agent-teams status --porcelain",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "空输出（仓库未被修改）"
+        },
+        {
+          "command": "Get-ChildItem <dshInstallRoot> -Recurse -File | Where LastWriteTime -gt 2026-10-12T00:35",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "0 个文件被修改（只读约束成立）"
+        }
+      ]
+    },
+    {
+      "id": "t11",
+      "subject": "跨会话记忆机制对照表：Codex memories vs DSH 持久化能力",
+      "description": "基于 t9、t10，产出跨会话记忆机制对照表（第二轮），风格与第一轮 t4 一致：按机制维度组织，不按仓库组织。\n\n要求：\n(1) 行为机制维度（提炼触发、数据来源、产物形态、存储与格式、检索/注入接口、匹配方式、生命周期与淘汰、容量上限、跨会话可读性、写入权限、依赖前提等），列为 Codex / dsh-agent-teams 插件层 / DSH 宿主（压缩栈+核心），单元格写 做法 + 证据路径行号。\n(2) 每行给出「对我方是否适用」判断：生效条件、前置依赖（如是否依赖服务端、账号、特定 provider 认证）、在 DSH 架构里能否照搬。\n(3) 区分四类：同一问题不同解法 / Codex 有而 DSH 无 / DSH 有而 Codex 无 / 表面相似但语义不同。不得强行一一对应。\n(4) 与第一轮 t4 的边界：明确不得把 notes（模型可写持久笔记）、history（跨窗口检索）、compact（压缩）重复计入 memory；t4 的 M16/M17 已各自归类。\n(5) 不得引入 t9/t10 之外的未经取证断言；证据不足的格写 证据不足。\n\n产出目录：`I:\\VMsShare\\context-compare\\memories\\`。",
+      "status": "completed",
+      "assignee": "synthesizer",
+      "dependencies": [
+        "t9",
+        "t10"
+      ],
+      "attempt": 1,
+      "createdAt": 1791736532027,
+      "updatedAt": 1791737868237,
+      "kind": "work",
+      "acceptance": [
+        "每个机制行至少含 Codex 与 DSH 两侧结论，或明确的 证据不足/未实现",
+        "所有结论可回溯到 t9/t10 的证据路径，无新断言",
+        "显式给出记忆机制的适用条件与前置依赖（是否依赖服务端/账号/特定 provider）",
+        "与第一轮 t4 的边界衔接清楚：不得把 notes/history/compact 重复计入 memory"
+      ],
+      "deliverables": [
+        "I:\\VMsShare\\context-compare\\memories\\m3-memory-comparison-matrix.md"
+      ],
+      "attemptId": "2f463c34-94ba-49be-b2c5-c9e25fa02f15",
+      "reassigning": false,
+      "output": "t11 完成：交付 `I:\\VMsShare\\context-compare\\memories\\m3-memory-comparison-matrix.md`（34,908 bytes）。\n\n【结构】§0 定位（**DSH 有可读的持久存储、无记忆抽象与激活面**，含存储/抽象/激活面/结论四行对照）→ §0.1 船长抽检 4 条的回源复核 → §1 主表 N1–N18（7 列：机制维度 · Codex · 插件层 · DSH 宿主 · 对我方是否适用 · 分类）→ §2 四类分类 → §3 适用性汇总（5 档）→ §4 与第一轮 t4 的边界 → §5 证据边界 → §6 收口。\n\n【核心行 N5】按要求单列为「注入上下文与记忆库规模解耦」，写全六重收敛证据：每 thread 表内仅一行（`thread_id PK` + `ON CONFLICT UPDATE` + 倒流保护 `state/src/runtime/memories.rs:908,924`、`memory_migrations/0001_memories.sql:1`）⇒ 记录数 ≈ 会话数而非回合数；每次启动最多 2 条（`config/src/types.rs:55`）；30 天未使用且未入选相位 2 淘汰、批 200（`phase1.rs:97-118`）；相位 2 仅 top-256（`types.rs:59,61-62`）；`memory_summary.md` 硬校验 <10 000 字节（`workspace.rs:105-129`）；注入再截 2 500 token（`ext/memories/src/lib.rs:16`）。并在该行与 §6 明确建立与第一轮的联系：这与 DSH 的**全文投递（t4 M13）、成员会话只增不减、无成员级预算（t4 M15）**是同一类问题的解法——Codex 截断的是**已收敛的记忆**，DSH 截断的是**未收敛的原始记录**。\n\n【船长 4 条抽检项均独立复核通过】①`Feature::MemoryTool` = `Stage::Stable` + `default_enabled: false`（`features/src/lib.rs:1267-1272`）⇒ 全文措辞为「有意 opt-in」，未写「实验性」；②`memor` 在三条压缩路径命中 0/0/0（`git grep -i` 同）；③版本化目录常量锚定 **protocol 侧** `protocol/src/memory_version.rs:19-20`；④README:5-6 的 `core/src/memories/` 路径本 commit `Test-Path` = False，已作为事实项写入。\n\n【避坑落实】①采信「按类型精确统计」口径（58 会话 / 35,652 记录 / 44 类型，note|memory|feedback = 0），全文不据子串命中断言记忆事件；②§4 用专表把 notes（t4 M16）/history（t4 M17）/compact（t4 M5/M6/M9/M14）/spill（t4 M4）逐条排除，四者均标「无独立行」，并给出三条入选判据（跨会话 / 有提炼 / 自动或半自动可召回）逐一验收；③证据不足 6 处、t9 的 7 项与 t10 的 4 项 UNVERIFIED 照抄不外推。\n\n【分类】①同一问题不同解法 6 条（N3/N5/N13/N15/N16/N17，其中 N13 指出 Codex memories 与第一轮 history 的检索算法**同构**：均为区分大小写字面包含；N17 是本表唯一「两侧同向」项）；②Codex 有而 DSH 无 10 条（共同根因：DSH 无「记忆子系统」这一层）；③DSH 有而 Codex 无 2 条（用户直接引用旧会话；插件状态持久化实体但非记忆）；④表面相似但语义不同 4 条（工作区文件≠记忆、压缩检查点≠记忆、引用快照≠摘要、spill≠可召回记忆）；N2 的限流判定因 t9 §8.3 未取证而归「不能归入四类」。\n\n另：已删除初稿误题名文件 `t11-memory-mechanism-matrix.md`，目录内现为 m3 + t9/t10 及其证据工具。改进建议未写入本表（按要求归后续定稿）。",
+      "changedPaths": [
+        "I:\\VMsShare\\context-compare\\memories\\m3-memory-comparison-matrix.md"
+      ],
+      "acceptanceResults": [
+        {
+          "criterion": "每个机制行至少含 Codex 与 DSH 两侧结论，或明确的 证据不足/未实现",
+          "status": "passed",
+          "evidence": "主表 18 行（N1–N18）× 7 列，脚本审计：rows=18、列数异常=0、反引号不平衡=0。每行的三列（Codex / 插件层 / DSH 宿主）均非空；未实现写「未实现」（12 处），无对应物写「不可照搬 / 不应照搬」（10+2 处），无支撑的格写「证据不足」（6 处）。"
+        },
+        {
+          "criterion": "所有结论可回溯到 t9/t10 的证据路径，无新断言",
+          "status": "passed",
+          "evidence": "全文含 t9 §x 引用 29 处、t10 §x 引用 30 处，另有跨轮指向 t4 M16/M17、t3 §4.1 的边界引用 7 处；每格写具体文件:行号（如 `turn_processor.rs:704-716`、`features/src/lib.rs:1267-1272`、`protocol/src/memory_version.rs:19-20`、`state/src/sqlite.rs:36,97-112`、`local/search.rs:288`、`cordis.yml:100-104`、`src/capabilities.ts:42-49`）。唯一非 t9/t10 的 4 条事实全部集中在 §0.1 并逐条标注为「船长抽检项、本轮回源复核」，均有实测记录（见 commandsRun）。"
+        },
+        {
+          "criterion": "显式给出记忆机制的适用条件与前置依赖（是否依赖服务端/账号/特定 provider）",
+          "status": "passed",
+          "evidence": "N18 专行回答依赖问题：Codex 侧**不依赖服务端**（本地 SQLite + 本地 git 基线 + `LocalMemoriesBackend`，`extension.rs:150-158`）但依赖**三重开关 + 账号额度**（`Feature::MemoryTool` Stage::Stable/default_enabled:false + `config.memories.use_memories` + 非 ephemeral/非 subagent/state DB 可用 + 限流闸门 25%）；DSH 侧无服务端依赖，但依赖 profile 装载（`cordis.yml:443-444`、FTS 需 openAt != never、agent-instructions 需 standard preset）。§3 汇总表逐档写明「生效条件 / 前置依赖 / 能否照搬」。全文另含「前置依赖」5 处、「依赖服务端」1 处、「账号」2 处、「opt-in」3 处。"
+        },
+        {
+          "criterion": "与第一轮 t4 的边界衔接清楚：不得把 notes/history/compact 重复计入 memory",
+          "status": "passed",
+          "evidence": "§4 专表逐项列 notes（t4 M16）/history（t4 M17）/compact（t4 M5/M6/M9/M14）/spill（t3 §4.1、t4 M4）的归属、**为何不得计入**、以及本表如何引用；四者均标注「无独立行」（4 处命中）。另给出三条入选判据（跨会话 / 有提炼 / 自动或半自动可召回）并逐一验收四者不满足。t9 §7 的四者对照表被作为权威分界引用。"
+        },
+        {
+          "criterion": "船长指定的输出路径与格式要求（按机制维度成行、列为三方、每行含适用性、四类分类）",
+          "status": "passed",
+          "evidence": "已写入 `I:\\VMsShare\\context-compare\\memories\\m3-memory-comparison-matrix.md`（34,908 bytes）；结构：§0 定位（含「有可读持久存储、无记忆抽象」对照）→ §0.1 复核 4 条 → §1 主表 N1–N18（7 列）→ §2 四类分类（①/②/③/④ + 「不能归入四类」）→ §3 适用性汇总 → §4 与 t4 边界 → §5 证据边界 → §6 收口。另删除了初稿误题名 `t11-memory-mechanism-matrix.md`。"
+        }
+      ],
+      "commandsRun": [
+        {
+          "command": "pwsh: 核实记忆与压缩零耦合 —— Select-String 'memor' 于 core/src/compact.rs / compact_remote_v2.rs / compact_token_budget.rs，并用 git grep -i 复核",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "三文件命中 0/0/0；git grep 同样零命中 ⇒ 支持船长「三条压缩路径对 memor 零命中」的结论"
+        },
+        {
+          "command": "pwsh/read: 核实 Feature::MemoryTool 的 stage 与默认值 —— 读取 features/src/lib.rs:1266-1273",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": ":1267-1272 = `id: Feature::MemoryTool` / `key: \"memories\"` / `stage: Stage::Stable` / `default_enabled: false` ⇒ 是「有意 opt-in」而非实验性，报告已按此措辞"
+        },
+        {
+          "command": "read: 核实版本化目录常量的锚点 —— 读取 protocol/src/memory_version.rs 全文",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": ":19-20 = `Self::V1 => \"memories\"` / `Self::V2 => \"memories_v2\"`（文件共 23 行）⇒ 报告已按 protocol 侧锚定，而非 t9 摘要中的表述"
+        },
+        {
+          "command": "pwsh: 核实 README 过期路径 —— Test-Path codex-rs/core/src/memories",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "返回 False（该目录不存在）⇒ README:5-6 与代码不一致，已作为事实项写入 §0.1"
+        },
+        {
+          "command": "pwsh: 结构自检 —— m3 主表列数/反引号配对与全文表格审计",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "主表 rows=18 / 列数异常 0 / 不平衡 0；全文 45 个表格行、0 处 UNBALANCED"
+        }
+      ]
+    },
+    {
+      "id": "t12",
+      "subject": "第二轮独立核验：memories 对照表关键断言（以证伪为目标）",
+      "description": "对第二轮对照表做独立核验，目标仍是**证伪**，标准与第一轮 t5/t7 一致。\n\n核验对象：`I:\\VMsShare\\context-compare\\memories\\m3-memory-comparison-matrix.md`（以及 t9/t10 取证件中被它引用的关键结论）。\n\n重点：\n(1) Codex memories 侧：提炼触发链、数据源、产物形态、存储位置、检索/注入接口是否与源码一致；特别注意是否把 memories 与 notes/history/compact 混淆（第一轮 t4 已把 M16 notes / M17 history 单独归类，本轮不得重复计入 memory）。\n(2) DSH 侧：跨会话可读性结论是否成立；插件持久化边界（team.json / inbox / retired-members.json）描述是否准确；是否把\"未实现\"写成\"已实现\"。\n(3) 行号与逐字片段：抽查引用是否指向正确的定义/调用点，片段是否与源码逐字一致、是否 ≤15 行。\n(4) 前置依赖表述：凡声称\"依赖服务端/账号/provider 认证\"的，回源确认。\n\n判定：默认怀疑，给出 成立/不成立/部分成立 + 证据路径行号；发现错误必须写清错误原文、正确事实与位置。最后给出总体判定与必须修正清单（含严重度）。产出目录：`I:\\VMsShare\\context-compare\\memories\\`。全程只读。",
+      "status": "completed",
+      "assignee": "verifier",
+      "dependencies": [
+        "t11"
+      ],
+      "attempt": 1,
+      "createdAt": 1791736545885,
+      "updatedAt": 1791738340435,
+      "kind": "work",
+      "acceptance": [
+        "至少抽检 8 条影响结论的断言，逐条给出 成立/不成立/部分成立 + 证据路径行号",
+        "所有 不成立/部分成立 条目写明错误原文与正确事实",
+        "复核 m3 是否把 notes/history/compact 误计入 memory",
+        "给出总体判定：对照表是否可用于决策，或需先修正哪些行"
+      ],
+      "deliverables": [
+        "I:\\VMsShare\\context-compare\\memories\\m4-verification.md"
+      ],
+      "attemptId": "7144ce04-386a-4211-bf25-68ca512d83ef",
+      "reassigning": false,
+      "output": "t12 第二轮独立核验完成（attempt 1）。交付物：I:\\VMsShare\\context-compare\\memories\\t12-verification-report.md + 可复现脚本 t12-anchor-audit.ps1。全程只读，未修改 m3/t9/t10 与两个被测仓库。\n\n总体判定：**m3 可用于决策**。抽检 21 条：成立 18、部分成立 3、不成立 0；3 处待修正全部为低严重度引用/措辞问题，无一条机制结论被证伪。\n\n必须修正（均低严重度）：\n- F1 m3:33 `start.rs:90-95` 越界 1 行 —— 该文件共 94 行，相位 1/2 调用在 :89/:91，应写 :89-91 或 :90-91。\n- F2 m3:33/35/36/40 裸相对路径缺 crate 根：实际为 codex-rs/config/src/types.rs、codex-rs/state/memory_migrations/0001_memories.sql、codex-rs/memories/write/src/lib.rs（memories crate 无 config/ 子目录，按裸路径解析会全部找不到）。\n- F3 m3:24 措辞可加强：零耦合的更强机制证据是 rollout/src/policy.rs:104-125 把 Compaction/CompactionTrigger/ContextCompaction 排除出 memories 数据源（同时排除 developer 角色消息）。\n\n核验要点：\n1) Codex 侧全链成立：触发（turn_processor.rs:704-717 → start.rs:24，闸门 :33-38/:59-63/:79-86）、数据源（rollout/src/lib.rs:88-95 四个交互式 source；config/src/types.rs:55-57 默认 2/10/6；policy.rs:104-125）、产物（phase1_output.rs:50-52/61-82；consolidation.md:20-35 + workspace.rs:105-129 硬校验）、存储（sqlite.rs:36,97-112 独立 DB + migrations.rs:9 独立 migrator + 0035_drop_memory_tables.sql）、注入（prompts.rs:35-49 截 2500 token → extension.rs:95-98 developer_policy → session/mod.rs:4386-4388）。\n2) N5 核心行六重收敛全部回源命中，含 `thread_id TEXT PRIMARY KEY` + `ON CONFLICT … WHERE excluded.source_updated_at >= stage1_outputs.source_updated_at` 倒流保护、`len() < 10_000`、2500 token 注入上限。\n3) notes/history/compact/spill **未被误计入**：全表 M16/M17/M5/M6/M9/M14/M4 仅出现在边界宣告行与专表，N1–N18 无独立行；且确认 Codex 侧 memories 与 history-notes 是两个不同 extension、两条不同 feature，m3 未混淆。\n4) DSH 侧跨会话可读性结论成立：三层（存储可读/检索被 cordis.yml:100-104 `openAt: never` 显式关闭/无自动召回）逐条复核；未把\"未实现\"写成\"已实现\"。\n5) 前置依赖表述无误：m3 明写 memories 「产物与检索全部在本地、不依赖服务端」，只依赖账号侧额度（start.rs:79 + types.rs:58 的 25%）；未出现\"依赖 OpenAI provider 认证\"这类与 notes/history 混淆的越界表述。\n6) t9 的 7 项 + t10 的 4 项 UNVERIFIED 全部照抄为未验证，并写明\"第 3 项若成立会改变 N16/N18 结论\"。\n\n运行态数值独立复现：58 会话 / 44 类型 / note|memory|feedback = 0；compaction 27-26-27；team 事件 12-6-6。唯一差异是记录数 35,652 → 36,246（+594），源于会话日志多帧追加的持续写入，属预期增长，不构成错误。\n\n自我更正一处：初审我曾称 m3 主表未直引 `lib.rs:118`，实测 m3:39 确有该引用，已在报告中标注更正。第一轮 t5/t7 结论未被推翻，无跨轮口径漂移。",
+      "changedPaths": [
+        "context-compare/memories/t12-verification-report.md",
+        "context-compare/memories/t12-anchor-audit.ps1"
+      ],
+      "acceptanceResults": [
+        {
+          "criterion": "至少抽检 8 条影响结论的断言，逐条给出 成立/不成立/部分成立 + 证据路径行号",
+          "status": "passed",
+          "evidence": "t12-verification-report.md §1 抽检 21 条（A1–A21，超出 ≥8 要求）：A1 features/src/lib.rs:1267-1272 MemoryTool Stage::Stable+default_enabled:false 成立；A2 protocol/src/memory_version.rs:19-20 成立；A3 core/src/memories Test-Path=False 成立；A4 turn_processor.rs:704-717→start.rs:24 唯一调用点 成立；A5 四道闸门 start.rs:33-38/59-63/79-86 成立；A6 config/src/types.rs:55-57 默认值 2/10/6 成立；A7 stage1_outputs PK+ON CONFLICT+倒流保护（0001_memories.sql:1-2、runtime/memories.rs:908-925）成立；A8 六重收敛其余五重（lib.rs:87、phase1.rs:100-102、types.rs:59-62、workspace.rs:119-120、ext/memories/src/lib.rs:16）成立；A9 phase1_output.rs:50-52/61-82 成立；A10 consolidation.md:20-35 + workspace.rs:105-129 成立；A11 lib.rs:118（m3:39）成立；A12 sqlite.rs:36,97-112 + migrations.rs:9 + 0035_drop_memory_tables.sql 成立；A13 prompts.rs:35-49 + extension.rs:48/82/95-98 + session/mod.rs:4386-4388 成立；A14 tools/mod.rs:35-52 + lib.rs:11-22 + config/types.rs:384 成立；A15 local/search.rs:284-289 + tools/search.rs:106-111 + backend.rs:100-109 成立；A16 不依赖服务端、依赖账号额度 成立；A17 memor 0/0/0（独立复跑）成立；A18 cordis.yml:100-104 openAt:never 成立；A19 session-reference config.d.ts:3,7 + index.d.ts:30-38 + cordis.yml:443-444 成立；A20 capabilities.ts:41-48 + state.ts:1152-1157 + index.ts:271-273 + 本机无 archive/retired-members 成立；A21 58 会话/44 类型/0 记忆事件（独立复跑）成立。判定：成立 18、部分成立 3、不成立 0。"
+        },
+        {
+          "criterion": "所有 不成立/部分成立 条目写明错误原文与正确事实",
+          "status": "passed",
+          "evidence": "t12-verification-report.md §2 逐条给出：F1（m3:33）`start.rs:90-95` 越界 1 行，文件共 94 行，正确应为 :89-91（:88-91 逐字为 Run phase 1/2 调用）—— 低；F2（m3:33/35/36/40）裸相对路径缺 crate 根：实际为 codex-rs/config/src/types.rs、codex-rs/state/memory_migrations/0001_memories.sql、codex-rs/memories/write/src/lib.rs，而 memories crate 无 config/ 子目录—— 低；F3（m3:24）措辞可加强：零耦合的更强机制证据是 rollout/src/policy.rs:104-125 把 Compaction/CompactionTrigger/ContextCompaction 排除出 memories 数据源 —— 低。另在 §1 自报一处我的初审错误并更正：A11 我曾说主表未直引 lib.rs:118，实测 m3:39 确引（已更正）。"
+        },
+        {
+          "criterion": "复核 m3 是否把 notes/history/compact 误计入 memory",
+          "status": "passed",
+          "evidence": "t12-verification-report.md §3.1：未误计入。全表检索 M16 仅出现在 m3:6/.92（边界宣告+排除表）、M17 仅 :6/:93、M5/M6/M9/M14 仅 :6/:71/:94、M4 仅 :73；N1–N18 无 notes/history/compact/spill 独立行；m3:97 三条入选判据（跨会话/有提炼/自动或半自动可召回）对四者逐一验收，无自相矛盾。另确认 Codex 侧 ext/memories（Feature::MemoryTool/memories）与 ext/history-notes（token_budget.use_history_notes_extension + OpenAI provider + codex backend 认证，第一轮 t1 §8.3）是两个不同 extension、两条不同 feature，m3 未混淆。"
+        },
+        {
+          "criterion": "给出总体判定：对照表是否可用于决策，或需先修正哪些行",
+          "status": "passed",
+          "evidence": "t12-verification-report.md §4 判定：m3 可用于决策。四条理由（事实层 18/21 完全成立且无机制结论被证伪；边界层四概念未计入且附可验收判据；诚实边界层 t9 的 7 项 + t10 的 4 项 UNVERIFIED 全部照抄为未验证并写明”第 3 项若成立会改变 N16/N18“；运行态数值全部独立复现）。必须修正清单（均低严重度）：F1 m3:33 start.rs:90-95→89-91；F2 m3:33/35/36/40 补 crate 根；F3 m3:24 补 policy.rs:104-125 因果证据。并明确第一轮 t5/t7 结论未被推翻、无跨轮口径漂移。"
+        }
+      ],
+      "commandsRun": [
+        {
+          "command": "node I:\\VMsShare\\context-compare\\memories\\event-vocabulary.mjs 'C:\\Users\\ZYX\\.dsh\\sessions'",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "独立重跑 t10 的证据脚本：sessions=58 records=36246 distinctTypes=44，末行 note/memory/feedback event types: (none)。与 m3/t10 的 58/35652/44 相比记录数 +594，属会话日志多帧追加导致的运行态增长（58 个会话目录未增），关键属性（0 个 note|memory|feedback 类型）不变。"
+        },
+        {
+          "command": "临时 node 脚本（已删除）：统计 C:\\Users\\ZYX\\.dsh\\sessions 下 compaction/* 与 team* 事件类型计数",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "compaction/* = {start:27, summary:26, end:27}（与 t10 §3.1 一致，均为会话内事件）；team 类 = {team/task:12, team/member:6, team/message/queued:3, team/message/delivered:3}（与 t10 §2.2 的 12/6/6 一致，且证实宿主确实认识并写入了这些插件事件，支持 m3 的”只在宿主认识该类型时写入“）。"
+        },
+        {
+          "command": "pwsh -NoProfile -File I:\\VMsShare\\context-compare\\memories\\t12-anchor-audit.ps1",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "对 m3 全部 `路径:行号` 引用做机械审计：唯一真实越界是 start.rs:90-95（文件 94 行）→ F1；其余报 FILE-NOT-RESOLVED 的 15 处均为裸片段名（memory_summary.md / MEMORY.md / CLAUDE.md / raw_memories.md / 0035_drop_memory_tables.sql / t4-mechanism-matrix.md），已逐一实地确认存在，非死链。"
+        },
+        {
+          "command": "Select-String -Path codex-rs -Pattern 'memor' 于 compact.rs / compact_remote_v2.rs / compact_token_budget.rs；以及 git grep -i memor -- 'codex-rs/core/src/compact*.rs'",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "三文件大小写敏感与忽略大小写命中均 0；git grep -i 无输出 ⇒ m3 §0.1 第 2 条（三条压缩路径与记忆零耦合）实测部分成立。另发现更强机制证据：rollout/src/policy.rs:104-125 的 should_persist_response_item_for_memories 对 Compaction/CompactionTrigger/ContextCompaction 返回 false（同时排除 role==\"developer\" 消息）⇒ 压缩产物在设计上被数据入口排除。"
+        },
+        {
+          "command": "Test-Path codex-rs\\core\\src\\memories；Get-Content memories\\README.md -TotalCount 8；Select-String C:\\Users\\ZYX\\.dsh\\profiles\\web\\cordis.yml -Pattern 'openAt'",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "core/src/memories = False 而 README:5-6 声称仍在其中 ⇒ 过期路径声明成立；profile openAt 全文件仅 L104 `openAt: never`（L100-104 为 session-query-sqlite 行，path ':memory:'）⇒ N13 的”检索被显式关闭且无上层覆盖“成立；profile 文件时间 2026-10-11 22:41:31，核验期间未变。"
+        },
+        {
+          "command": "Get-ChildItem I:\\VMsShare\\.agent-teams -Recurse；Get-ChildItem capabilities.ts / state.ts / index.ts 锚点读取",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "本机 .agent-teams 下仅 context-health-codex-vs-dsh/{team.json,inbox/*.jsonl}，无 archive 子目录、无 retired-members.json（C:\\Users\\ZYX\\.dsh\\.agent-teams 不存在）⇒ A20 成立；capabilities.ts:42 逐字排除 archive 目录、:44-45 需 teamLeadMatch 或 member.id 匹配；state.ts:1152-1157 逐字”The archive directory has no team.json of its own“；index.ts:271-273 为 ?archived=1 面板路由。"
+        }
+      ]
+    },
+    {
+      "id": "t13",
+      "subject": "收口第二轮：修正 m3 的 F1/F2/F3，并把 README 扩展为两轮总入口",
+      "description": "收口第二轮，并同步总入口 README。两件事，均为当前状态描述，禁止记录修改历史或开发阶段。\n\n【一、修正 m3 的三处（t12 核验结论，全部低严重度，船长已独立确认 F1/F3）】\n1. **F1 越界**：`m3:33` 引用的 `start.rs:90-95` 越界——该文件共 **94 行**（船长实测），相位调用实际在 `:89`（`phase1::run`）与 `:91`（`phase2::run`）。请改为 `:89-91`，并复核全文是否还有其他 `start.rs:90-95` 或同类越界引用。\n2. **F2 裸相对路径缺 crate 根**：`m3:33/35/36/40` 的裸路径按当前写法解析会找不到，需补全为仓库根相对：`codex-rs/config/src/types.rs`、`codex-rs/state/memory_migrations/0001_memories.sql`、`codex-rs/memories/write/src/lib.rs`（注意 memories crate **没有** `config/` 子目录）。请顺带全文扫一遍同类裸路径并统一。\n3. **F3 措辞加强**：`m3:24` 目前用「三压缩文件里 `memor` 零命中」论证记忆与压缩零耦合。更强的机制证据是数据源层显式过滤：`codex-rs/rollout/src/policy.rs:104-125` 的 `should_persist_response_item_for_memories` 把 `ResponseItem::Compaction` / `CompactionTrigger` / `ContextCompaction` 三个变体显式返回 `false`，同一函数还排除 `role == \"developer\"` 的消息（`:106`）。请把该证据补进该处（保留原有零命中证据亦可），使「零耦合」是机制层结论而非巧合。\n\n【二、README 更新为两轮总入口】\n现有 `I:\\VMsShare\\context-compare\\README.md` 是第一轮总入口，请扩展为覆盖两轮：\n- 新增第二轮交付物清单与映射：`memories/m3-memory-comparison-matrix.md`（对照表正文）、`memories/t9-...`/`m2?`（取证件，以实际文件名为准）、`memories/t12-verification-report.md`（核验件）。\n- 结论摘要补一段第二轮的当前结论：DSH 侧「有可读的持久存储、无记忆抽象与激活面」；Codex 侧「后台两阶段提炼 + 独立 SQLite + 磁盘工件 + 摘要硬上限 + 注入与库规模解耦」；两侧检索均为区分大小写的字面包含、均无语义检索。\n- 请以磁盘实际文件名为准列清单（本轮取证与核验文件名以 `t9-`/`t10-`/`t12-` 前缀为主，另注意 `m3-` 前缀），不要凭记忆写。\n- 明确「已知边界与未覆盖项」：写明哪些结论仍在各自的 UNVERIFIED 清单内、以及本轮未纳入 scope 的内容。**不得**把未取证内容写成结论，**不得**书写任何修改历史/变更记录/阶段编号。\n\n【三、纪律】只读两个被测仓库与 DSH 安装目录，不改它们。完成后回报：改了哪些文件、各几行、以及 m3 的 18 行结构自检结果。",
+      "status": "completed",
+      "assignee": "synthesizer",
+      "dependencies": [],
+      "attempt": 1,
+      "createdAt": 1791738391061,
+      "updatedAt": 1791738792619,
+      "kind": "work",
+      "acceptance": [
+        "m3 的 F1/F2/F3 三处均已按 t12 的结论修正",
+        "修正后 m3 仍为 18 个机制行（N1–N18），结构自检通过",
+        "README 已覆盖两轮交付物、当前结论摘要与已知边界（含未覆盖项）",
+        "明确列出本轮未纳入 scope 的项，不把未取证内容写成结论"
+      ],
+      "deliverables": [
+        "I:\\VMsShare\\context-compare\\memories\\m3-memory-comparison-matrix.md",
+        "I:\\VMsShare\\context-compare\\README.md"
+      ],
+      "attemptId": "c70139ac-7910-4a3a-94d8-a8cbf14ffcd1",
+      "reassigning": false,
+      "output": "t13 完成：改 2 个文件（m3 与 README），未改任何被测仓库或 DSH 安装目录。\n\n【m3 结构自检】仍是 **18 个机制行 N1–N18**（连续、无缺号）；每行 7 列、列数异常 0；全文 45 个表格行、反引号配对不平衡 0；文件 111 行 / 35,732 bytes。\n\n【F1 越界（已修）】回源确认 `codex-rs/memories/write/src/start.rs` 共 **94 行**，`:89` = `phase1::run(...)`、`:91` = `phase2::run(...)` ⇒ `start.rs:90-95` → **`start.rs:89-91`**；全文残留 `start.rs:90-95` = 0，t12 审计脚本也不再报该越界锚点。\n\n【F2 裸路径（已修）】补 crate 根并统一，共 11 类规则、30 处：`codex-rs/config/src/types.rs`(×4)、`codex-rs/state/src/`(×4)、`codex-rs/state/memory_migrations/`(×2)、`codex-rs/rollout/src/`(×2)、`codex-rs/features/src/lib.rs`、`codex-rs/protocol/src/memory_version.rs`、`codex-rs/memories/write/src/`(×4)、`codex-rs/ext/memories/src/`(×6)、`codex-rs/core/src/`(×3)、`codex-rs/app-server/src/`、`codex-rs/memories/write/templates/memories/`(×2)；另把 `0035_drop_memory_tables.sql` 补全为 `codex-rs/state/migrations/0035_drop_memory_tables.sql`。**扫描中还纠正了一处我此前的误转**：`read_path.md` 实际在 `codex-rs/ext/memories/templates/memories/`（不在 memories/write 下），已改正。终态校验：m3 内 37 处绝对引用**全部文件存在且行号在范围内**。\n\n【F3 措辞加强（已修）】m3:24 补入机制层证据：`codex-rs/rollout/src/policy.rs:104-125` 的 `should_persist_response_item_for_memories` 把 `ResponseItem::Compaction` / `CompactionTrigger` / `ContextCompaction`（`:120-122`）与 `ConfigurationUpdate` / `ImageGenerationCall` / `Reasoning` / `Other` 一并显式返回 `false`（`:116-123`），并在 `:106` 排除 `role == \"developer\"` ⇒ 「零耦合」现在是数据源设计层结论；原 `memor` 零命中证据保留为附带证据。\n\n【README（已扩展为两轮总入口）】92 行 / 12,483 bytes：§0 比对边界（成品插件 vs 实验版，含运行态证据）→ §1.1 第一轮 4 条结论 + 改进建议/不建议照搬 → §1.2 第二轮 5 条结论（DSH「有可读持久存储、无记忆抽象与激活面」；Codex「两阶段提炼 + 独立 SQLite + 磁盘工件 + 摘要硬上限 + 注入与库规模解耦」；两侧检索同为区分大小写字面包含、均无语义检索）→ §2.1/§2.2 两轮文件清单（**按磁盘实际文件名**：t1/t2/t3/t4/t6/t5/t7 与 memories/t9、t10、m3、t12 及其证据工具）→ §3 阅读顺序 → §4 已知边界。\n\n【已知边界与未覆盖项】§4.1 逐项列仍在 UNVERIFIED 内的结论：第一轮 t1 §12 的 5 项 + t3 §9 的 4 项；第二轮 t9 §8 的 7 项 + t10 §7 的 4 项（含特别标注：`dsh_session_log` 若在服务端形成可用记忆会改变 m3 的 N16/N18 结论，现按\"未验证\"处理）。§4.2 列出本轮未纳入 scope 的 5 项：实验版团队（非比对对象、未取证）、Codex 服务端/云端侧行为（本地不可见）、改进建议未落地（未改插件源码；被测仓库与 DSH 安装目录全程只读）、跨模型/多 provider 差异（未取证）、记忆机制的具体实现方案（N5 仅参数化思路）。§4.3 口径说明（运行态观测非源码契约、第三方包不宜改写构建产物、t10 采信按类型精确统计）。README 内无修改历史/变更记录/阶段编号表述（已脚本扫描确认，2 处\"历史\"字样均为领域用法）。",
+      "changedPaths": [
+        "I:\\VMsShare\\context-compare\\memories\\m3-memory-comparison-matrix.md",
+        "I:\\VMsShare\\context-compare\\README.md"
+      ],
+      "acceptanceResults": [
+        {
+          "criterion": "m3 的 F1/F2/F3 三处均已按 t12 的结论修正",
+          "status": "passed",
+          "evidence": "F1：回源确认 `codex-rs/memories/write/src/start.rs` 共 **94 行**，`:89` = `phase1::run(...)`、`:91` = `phase2::run(...)` ⇒ 已将 `start.rs:90-95` 改为 `start.rs:89-91`；全文残留 `start.rs:90-95` = 0。F2：裸路径补 crate 根（共 11 条规则、30 处），当前 m3 内 `codex-rs/<...>.rs|.sql|.md|.ts:行号` 形式的 37 处引用经机器校验**全部文件存在且行号在范围内**（含 read_path.md 路径纠正、0035_drop_memory_tables.sql 补全）。F3：m3:24 已补入机制层证据 `codex-rs/rollout/src/policy.rs:104-125`（`:120-122` 显式返回 false、`:106` 排除 developer），原零命中证据保留为附带证据。"
+        },
+        {
+          "criterion": "修正后 m3 仍为 18 个机制行（N1–N18），结构自检通过",
+          "status": "passed",
+          "evidence": "行审计：rows=18、ids=N1..N18 连续；列数异常 0（每行 7 列）；全文 45 个表格行、反引号配对不平衡 0。文件 111 行 / 35,732 bytes。另跑 verifier 自带脚本 `memories/t12-anchor-audit.ps1`：F1 报出的越界锚点已不再出现；剩余 14 条均为文件名型假阳性（`memory_summary.md`/`MEMORY.md`/`raw_memories.md`/`CLAUDE.md` 为产物名，`t4-mechanism-matrix.md` 为跨文档引用），与 t12 原本的口径一致。"
+        },
+        {
+          "criterion": "README 已覆盖两轮交付物、当前结论摘要与已知边界（含未覆盖项）",
+          "status": "passed",
+          "evidence": "README 重写为两轮总入口（92 行 / 12,483 bytes）：§0 边界（含实验版非基准的运行态证据）→ §1.1 第一轮 4 条结论 + 改进建议/不建议照搬，§1.2 第二轮 5 条结论（含“有可读持久存储、无记忆抽象与激活面”、两阶段提炼+独立 SQLite+摘要硬上限+注入与库规模解耦、两侧检索同为区分大小写字面包含）→ §2.1/§2.2 两轮文件清单（按磁盘实际文件名：t1/t2/t3/t4/t6/t5/t7 + memories/t9/t10/m3/t12 及证据工具）→ §3 阅读顺序 → §4 已知边界（4.1 两轮 UNVERIFIED 逐项、4.2 未纳入 scope、4.3 口径说明）。"
+        },
+        {
+          "criterion": "明确列出本轮未纳入 scope 的项，不把未取证内容写成结论",
+          "status": "passed",
+          "evidence": "README §4.2 列出 5 项未纳入 scope：DSH 内置实验版团队（非比对对象/未取证）、Codex 服务端/云端侧行为（本地不可见，仅按客户端契约取证）、改进建议未落地（未改插件源码、被测仓库与 DSH 安装目录全程只读）、跳模型/多 provider 差异（未取证）、记忆机制具体实现方案（m3 N5 仅给参数化思路）。§4.1 逐项列两轮 UNVERIFIED（t1 §12 的 5 项、t3 §9 的 4 项、t9 §8 的 7 项、t10 §7 的 4 项），并特别标注“`dsh_session_log` 若在服务端形成记忆则会改变 m3 的 N16/N18 结论，现按未验证处理”。README 内无修改历史/变更记录/阶段编号表述（已脚本扫描确认）。"
+        }
+      ],
+      "commandsRun": [
+        {
+          "command": "pwsh: 核实 F1 —— 读 codex-rs/memories/write/src/start.rs 行数与 :85-94",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "文件共 **94 行**；`:89` `phase1::run(...)`、`:91` `phase2::run(...)` ⇒ 原 `:90-95` 确实越界，改为 `:89-91`"
+        },
+        {
+          "command": "read: 核实 F3 —— 读 codex-rs/rollout/src/policy.rs:100-129",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "`should_persist_response_item_for_memories`（`:104`）在 `:116-123` 把 `AdditionalTools`/`Reasoning`/`ConfigurationUpdate`/`ImageGenerationCall`/**`Compaction`(120)**/**`CompactionTrigger`(121)**/**`ContextCompaction`(122)**/`Other` 一并返回 `false`；`:106` `ResponseItem::Message { role, .. } => role != \"developer\"`"
+        },
+        {
+          "command": "pwsh: 全文扫描裸相对路径（正则提取所有反引号内代码引用并过滤已完整路径）",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "定位到 `config/src/`、`state/src/`、`state/memory_migrations/`、`rollout/src/`、`features/src/`、`protocol/src/`、`memories/write/src/`、`ext/memories/src/`、`core/src/`、`app-server/src/`、`templates/memories/` 共 11 类；已转写 30 处"
+        },
+        {
+          "command": "pwsh: 机器校验 m3 全部绝对引用（文件存在 + 行号≤文件行数）",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "第一轮 36 处 → 发现 1 处路径误转（read_path.md 实际在 ext/memories/templates/）并纠正；第二轮 37/37 全部 VALID、无越界"
+        },
+        {
+          "command": "pwsh: 跑 verifier 自带审计 —— pwsh -NoProfile -File memories\\t12-anchor-audit.ps1",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "bad anchors: 14，全部为文件名型假阳性（memory_summary.md / MEMORY.md / raw_memories.md / CLAUDE.md 为产物名；t4-mechanism-matrix.md 为跨文档引用）；**F1 的 `start.rs:90-95` 越界锚点已不再出现**"
+        },
+        {
+          "command": "pwsh: README 结构自检与禁用词扫描",
+          "status": "passed",
+          "exitCode": 0,
+          "evidence": "README 92 行 / 12,483 bytes；15 个表格行、0 处 UNBALANCED；对「修订/历史/之前/曾用名/阶段编号/第一版/初稿」扫描：命中 2 处均为领域用法（「实验版 vs 成品版」对照、“历史会话一键插入”功能名），非修改历史表述"
+        }
+      ]
+    }
+  ],
+  "taskSeq": 13,
+  "phase": "running",
+  "approvedAt": 1791729632144
+}

@@ -1,0 +1,95 @@
+
+e753b90e-8a03-45f0-a0b2-590b045a55cd
+  mtime=2026-10-11T14:14:04.712Z bytes=102405 events=77 seqMax=75 sub parent=session-0423cee6-4
+  system/message x1: 8(9061)
+  compactions: none
+
+21b70605-5a3b-4d6a-a15d-f53b601cdc28
+  mtime=2026-10-11T14:14:25.424Z bytes=115190 events=64 seqMax=62 sub parent=session-0423cee6-4
+  system/message x1: 8(9061)
+  compactions: none
+
+aecac4e1-d654-4df2-be22-c0e0c0fd0cb5
+  mtime=2026-10-11T14:16:34.834Z bytes=142531 events=103 seqMax=101 sub parent=session-0423cee6-4
+  system/message x1: 8(9061)
+  compactions: none
+
+a3554bee-1b87-4db8-9b7e-6fc8bda7ee52
+  mtime=2026-10-11T16:51:54.838Z bytes=667148 events=672 seqMax=670 sub parent=session-6680b4d6-e
+  system/message x2: 8(13617), 84(13031)
+  compactions: none
+
+5555841f-4f2e-49c4-b100-cf9f51835249
+  mtime=2026-10-11T16:53:33.575Z bytes=1307057 events=1780 seqMax=1778 sub parent=session-6680b4d6-e
+  system/message x2: 8(13561), 86(12975)
+  compactions: none
+
+b88f73e4-74f8-4498-b01f-faaeaae8ee1c
+  mtime=2026-10-11T17:06:26.203Z bytes=843449 events=761 seqMax=759 sub parent=session-6680b4d6-e
+  system/message x1: 8(12976)
+  compactions: none
+
+4c425ec8-3850-4ff2-bacc-92b746bff870
+  mtime=2026-10-11T17:13:48.672Z bytes=1155208 events=1085 seqMax=1083 sub parent=session-6680b4d6-e
+  system/message x1: 8(12959)
+  compactions: none
+
+session-0423cee6-4b25-4dcc-98a3-7ffa83ef8a13
+  mtime=2026-10-12T05:42:42.371Z bytes=386754 events=231 seqMax=229 top
+  system/message x2: 7(11058), 220(13901)
+  compactions: none
+
+55d7e1ef-0b47-4ae9-912e-4b07ee402ec6
+  mtime=2026-10-12T07:06:28.429Z bytes=608524 events=1437 seqMax=1435 sub SEEDED parent=session-6680b4d6-e
+  system/message x3: 9(14487), 171(13901), 1427(12512)
+  compactions: none
+
+6514d0d1-b14b-408b-addb-df3c39a5892e
+  mtime=2026-10-12T09:26:29.042Z bytes=515268 events=482 seqMax=480 sub parent=session-6680b4d6-e
+  system/message x1: 8(13901)
+  compactions: none
+
+55bb8ac0-8ae4-49f8-ae45-d4c85e3bbc51
+  mtime=2026-10-12T09:54:26.295Z bytes=345125 events=456 seqMax=454 sub parent=session-6680b4d6-e
+  system/message x1: 8(13901)
+  compactions: none
+
+session-dee7fe39-4a14-4b28-be35-d3486c9d0758
+  mtime=2026-10-12T11:37:26.988Z bytes=833073 events=770 seqMax=768 top
+  system/message x5: 7(11058), 109(16484), 136(14487), 213(13901), 326(13904)
+  COMPACTION start=317 manual cmd=cmd-f45ec796-3 end=321
+    range={"start":8,"end":309} n=126 tokens=113034
+    shadowedTypes=["user/message","assistant/message","tool/result","developer/message"] systemInRange=0
+    system/message AFTER end: [326]
+  COMPACTION start=698 manual cmd=cmd-852ffbd3-4 end=701
+    range={"start":320,"end":691} n=148 tokens=78831
+    shadowedTypes=["user/message","assistant/message","tool/result"] systemInRange=0
+    system/message AFTER end: NONE
+
+session-6680b4d6-e2c4-4400-a087-754f1238cb5c
+  mtime=2026-10-12T12:40:09.405Z bytes=2296714 events=2588 seqMax=2586 top
+  system/message x2: 9(14487), 171(13901)
+  COMPACTION start=1834 manual cmd=cmd-852ffbd3-3 end=1838
+    range={"start":10,"end":1826} n=697 tokens=285174
+    shadowedTypes=["user/message","assistant/message","tool/result","developer/message"] systemInRange=0
+    system/message AFTER end: NONE
+  COMPACTION start=2397 AUTOMATIC (no commandId) end=2400
+    range={"start":1837,"end":2155} n=131 tokens=69398
+    shadowedTypes=["user/message","assistant/message","tool/result"] systemInRange=0
+    system/message AFTER end: NONE
+
+session-f729634a-a2e5-4bd7-a72b-99bfb0f62fea
+  mtime=2026-10-12T12:41:54.018Z bytes=432196 events=447 seqMax=445 top
+  system/message x2: 7(13904), 40(13906)
+  COMPACTION start=270 AUTOMATIC (no commandId) end=273
+    range={"start":8,"end":86} n=29 tokens=32304
+    shadowedTypes=["user/message","assistant/message","tool/result"] systemInRange=0
+    system/message AFTER end: NONE
+
+session-f59ff5a3-fae0-416f-82d7-36b066cd799c
+  mtime=2026-10-12T12:51:22.679Z bytes=1158457 events=2446 seqMax=2444 top SEEDED parent=session-6680b4d6-e
+  system/message x2: 9(14487), 171(13901)
+  COMPACTION start=1834 manual cmd=cmd-852ffbd3-3 end=1838
+    range={"start":10,"end":1826} n=697 tokens=285174
+    shadowedTypes=["user/message","assistant/message","tool/result","developer/message"] systemInRange=0
+    system/message AFTER end: NONE

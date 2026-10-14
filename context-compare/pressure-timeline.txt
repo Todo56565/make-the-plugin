@@ -1,0 +1,77 @@
+override first inserted at 2026-10-12T11:59:34.168Z  (local 19:59:34 +08:00)
+
+e753b90e-8a03-45f0-a0b2-590b045a55cd
+  log mtime=2026-10-11T14:14:04.712Z  span=2.2min  SUB
+  first event at 2026-10-11T14:11:54.525Z   last event at 2026-10-11T14:14:04.707Z
+  compression: none
+  pressure: pressureTokens=55738 surfaceTokens=33014 window=1000000
+21b70605-5a3b-4d6a-a15d-f53b601cdc28
+  log mtime=2026-10-11T14:14:25.424Z  span=2.5min  SUB
+  first event at 2026-10-11T14:11:54.528Z   last event at 2026-10-11T14:14:25.417Z
+  compression: none
+  pressure: pressureTokens=55673 surfaceTokens=28536 window=1000000
+aecac4e1-d654-4df2-be22-c0e0c0fd0cb5
+  log mtime=2026-10-11T14:16:34.834Z  span=4.7min  SUB
+  first event at 2026-10-11T14:11:54.531Z   last event at 2026-10-11T14:16:34.826Z
+  compression: none
+  pressure: pressureTokens=71173 surfaceTokens=44718 window=1000000
+a3554bee-1b87-4db8-9b7e-6fc8bda7ee52
+  log mtime=2026-10-11T16:51:54.838Z  span=131.4min  SUB has-end-seed
+  first event at 2026-10-11T14:40:32.158Z   last event at 2026-10-11T16:51:54.830Z
+  compression: none
+  pressure: pressureTokens=275624 surfaceTokens=223909 window=1000000
+5555841f-4f2e-49c4-b100-cf9f51835249
+  log mtime=2026-10-11T16:53:33.575Z  span=133.0min  SUB has-end-seed
+  first event at 2026-10-11T14:40:32.197Z   last event at 2026-10-11T16:53:33.568Z
+  compression: none
+  pressure: pressureTokens=470775 surfaceTokens=373680 window=1000000
+b88f73e4-74f8-4498-b01f-faaeaae8ee1c
+  log mtime=2026-10-11T17:06:26.203Z  span=74.6min  SUB has-end-seed
+  first event at 2026-10-11T15:51:49.783Z   last event at 2026-10-11T17:06:26.199Z
+  compression: none
+  pressure: pressureTokens=319707 surfaceTokens=207207 window=1000000
+4c425ec8-3850-4ff2-bacc-92b746bff870
+  log mtime=2026-10-11T17:13:48.672Z  span=89.7min  SUB has-end-seed
+  first event at 2026-10-11T15:44:07.941Z   last event at 2026-10-11T17:13:48.667Z
+  compression: none
+  pressure: pressureTokens=349786 surfaceTokens=212345 window=1000000
+session-0423cee6-4b25-4dcc-98a3-7ffa83ef8a13
+  log mtime=2026-10-12T05:42:42.371Z  span=1009.1min  TOP has-end-seed
+  first event at 2026-10-11T12:53:38.877Z   last event at 2026-10-12T05:42:42.370Z
+  compression: none
+  pressure: pressureTokens=158496 surfaceTokens=112946 window=1000000
+55d7e1ef-0b47-4ae9-912e-4b07ee402ec6
+  log mtime=2026-10-12T07:06:28.429Z  span=997.0min  SUB seeded has-end-seed
+  first event at 2026-10-11T14:29:27.533Z   last event at 2026-10-12T07:06:28.419Z
+  compression: none
+  pressure: (no cache row)
+6514d0d1-b14b-408b-addb-df3c39a5892e
+  log mtime=2026-10-12T09:26:29.042Z  span=21.5min  SUB
+  first event at 2026-10-12T09:05:01.763Z   last event at 2026-10-12T09:26:29.036Z
+  compression: none
+  pressure: (no cache row)
+55bb8ac0-8ae4-49f8-ae45-d4c85e3bbc51
+  log mtime=2026-10-12T09:54:26.295Z  span=13.5min  SUB
+  first event at 2026-10-12T09:40:53.786Z   last event at 2026-10-12T09:54:26.287Z
+  compression: none
+  pressure: (no cache row)
+session-dee7fe39-4a14-4b28-be35-d3486c9d0758
+  log mtime=2026-10-12T11:37:26.988Z  span=1283.8min  TOP has-end-seed
+  first event at 2026-10-11T14:13:36.676Z   last event at 2026-10-12T11:37:26.983Z
+  compression: seq317[manual] seq698[manual]
+  pressure: pressureTokens=80214 surfaceTokens=47643 window=1000000
+session-6680b4d6-e2c4-4400-a087-754f1238cb5c
+  log mtime=2026-10-12T12:40:09.405Z  span=1330.7min  TOP has-end-seed
+  first event at 2026-10-11T14:29:27.533Z   last event at 2026-10-12T12:40:09.387Z
+  compression: seq1834[manual] seq2397[AUTO]
+  pressure: pressureTokens=189935 surfaceTokens=116410 window=1000000
+session-f729634a-a2e5-4bd7-a72b-99bfb0f62fea
+  log mtime=2026-10-12T12:51:54.061Z  span=45.9min  TOP
+  first event at 2026-10-12T12:05:59.679Z   last event at 2026-10-12T12:51:54.057Z
+  compression: seq270[AUTO]
+  pressure: (no cache row)
+session-f59ff5a3-fae0-416f-82d7-36b066cd799c
+  log mtime=2026-10-12T12:52:13.869Z  span=1342.8min  TOP seeded has-end-seed
+  first event at 2026-10-11T14:29:27.533Z   last event at 2026-10-12T12:52:13.864Z
+  compression: seq1834[manual]
+  pressure: (no cache row)

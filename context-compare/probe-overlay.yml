@@ -1,0 +1,12 @@
+# Probe overlay: does a top-level `- id:` patch reach the compaction entry that
+# the standard preset mounts inside its isolated `compaction` group?
+#
+# Expected: the overlay entry shows `# == ... patched by <this file>` in the
+# --dump-config output. The question is WHERE the config lands:
+#   (a) on the host-plane entry (id compaction-basic, disabled: true) => useless,
+#   (b) on the nested preset entry => the live backend actually gets it.
+- id: compaction-basic
+  name: '@deepseek-ai/dsh-compaction-basic'
+  config:
+    thresholdRatio: 0.25
+    retainRatio: 0.08
