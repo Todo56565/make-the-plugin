@@ -1,4 +1,4 @@
-# dsh-tokenBudget：dsh-agent-teams 上下文补丁插件设计规格（权威版）
+# dsh-token-budget：dsh-agent-teams 上下文补丁插件设计规格（权威版）
 
 本文件是补丁插件的**唯一权威规格**。`临时记录.md` 保留讨论结论与取证细节，`context-compare/` 保留两轮比对报告；三者冲突时以本文件为准，并应回头修正另外两处。
 
@@ -30,14 +30,14 @@
 
 ### 1.1 目标
 
-给 `@nanmicoder/dsh-agent-teams` 做**独立第三方补丁插件**，名称 **dsh-tokenBudget**（用户 2026-10-14 定名）：
+给 `@nanmicoder/dsh-agent-teams` 做**独立第三方补丁插件**，名称 **dsh-token-budget**（用户 2026-10-14 定名）：
 
 - 形态 = **另一个 dsh 插件**：同一功能两个插件，一个社区原版 agent-teams、一个本补丁包；原插件升级不会覆盖本补丁
 - **不修改** agent-teams 源码，也不修改 DSH 任何包
 - 以宿主层 Loader 行按 id 装载：**装上即有、卸下即无**；不装 = 原版社区 teams。整体启停由 DSH **插件管理面板**直接管理
 - tokenBudget 是本插件的本体（插件启用即生效）；插件内只保留**两个开关**：`notes` / `history`，**默认全开**（用户 2026-10-14 决定）
 - **只管团队会话**（用户 2026-10-14 决定），非团队会话一律不注入、工具返回说明性错误
-- 命名注意：npm 包名不允许大写，`dsh-tokenBudget` 作为显示名；包名 / plugin id 建议 `dsh-token-budget`（待用户确认）
+- **命名统一为 `dsh-token-budget`**（包名、plugin id、section 名前缀、文档内一切隐式与显式引用；用户 2026-10-14 决定）
 
 ### 1.2 硬边界（已确认的用户决定，沿用 `临时记录.md` §二）
 
@@ -67,7 +67,7 @@
 ```yaml
 - insert:
     - id: dsh-token-budget
-      name: 'dsh-token-budget'      # 显示名 dsh-tokenBudget；npm 包名须小写
+      name: 'dsh-token-budget'
       config:
         stateDir: .agent-teams      # 必须与 agent-teams 行的 stateDir 一致
         notes: true
@@ -366,7 +366,10 @@ section / context 的 `text()` 对无团队会话返回空串；队长建团后�
 | 7-5 | tokenBudget 作用域 | **只管团队会话** |
 | 7-6 | 开关 | **两个开关 `notes` / `history`，默认全开**；tokenBudget 由插件管理面板整体启停 |
 | 新 | 阈值 | 已用 **37% 提示**、**45% 强制换窗压缩**，两值可配（落点 §2.4） |
-| 新 | 名称 / 形态 | **dsh-tokenBudget**，独立 dsh 插件，与社区原版并存 |
+| 新 | 名称 / 形态 | **dsh-token-budget**（显式与隐式统一），独立 dsh 插件，与社区原版并存；两个开关 = `notes` / `history` |
+| 7-8 | 本会话先前窗口原文 | **需要**：做只读的 `history.*` 等价工具；不依赖已弃用接口与 `session-query`，倾向自建（方案调研中：`context-compare/community-plugins-survey.md`） |
+| 7-9 | fork 窗口计数 | **不扣除**（同意建议） |
+| 7-10 | 摘要拦截 | **v1 不拦截**；之后视 PoC-8 再决定是否加实验开关。用户认为「返回插件自拼的短摘要（任务契约 + 笔记指针）」可能是理想状态 |
 | 7-1 | 缓存论 | **分支 B**：窗口内会变的内容走运行时上下文；system 头只放每会话固定的指针 |
 | 7-3 | 合并层 | 设置开关 `notesMerge.enabled`，**默认关 = 由队长维护** `workspace.md`；开启时用宿主 `ctx.llm.listProviders()` / `listModels(provider)` 列出用户 DSH 账户上的模型与推理强度（`LlmReasoningEffortInfo`，`llm/llm/src/types.ts:369-382`），由用户选择，再经 `ctx.llm.stream()` 调用 |
 | 7-4 | hint 来源 | 任务 id + 标题（缓存的 `team.json`）+ 笔记元数据（自己的文件 + 队友最近 ≤5 个） |
@@ -389,9 +392,7 @@ section / context 的 `text()` 对无团队会话返回空串；队长建团后�
 
 ### 待用户确认
 
-- 7-8：是否需要「只读读取本会话先前窗口原文」的工具
-- 7-10：v1 不拦截摘要请求是否同意
-- npm 包名 / plugin id 是否用 `dsh-token-budget`；两个开关是否就是 `notes` / `history`
+- 7-8 的实现路径（待社区插件调研与源码核对后给出）
 
 ---
 
