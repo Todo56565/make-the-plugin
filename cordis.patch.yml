@@ -1,0 +1,19 @@
+# dsh-token-budget 装载补丁：把本插件行挂到 DSH 宿主层（与 agent-teams 同一层）。
+#
+# 安装：`dsh plugin --profile <name> add <本包名或本地路径>`。
+# 整体启停：DSH 插件管理面板。
+# 修改单项配置：在 profile 中按 id 覆盖本行时必须重述完整 config（config 整体替换、不深合并）。
+- insert:
+    - id: dsh-token-budget
+      # 必须与 package.json 的 name 一致
+      name: 'dsh-token-budget'
+      config:
+        # 必须与 agent-teams 行的 stateDir 一致
+        stateDir: .agent-teams
+        notes: true
+        history: true
+        budget:
+          remindAtRatio: 0.37
+          compactAtRatio: 0.45
+          bucketStep: 0.03
+          tool: true
