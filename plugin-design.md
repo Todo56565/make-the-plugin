@@ -156,7 +156,19 @@ interface Config {
 | B | 本插件 bundle 再插入一个**自带 preset**（如 `team-budget`），内容 = standard + `thresholdRatio` 取本插件配置；团队任务选这个 preset | 45% 只有一处；但要复制整份 standard 插件列表，上游一改就漂移；队长/成员是否继承 preset 需 PoC |
 | C | `modelPolicies` 按模型设 0.45（`compaction-basic/README.md:75`），给成员单独用一个模型路由 | 只有成员与队长用不同模型时才能区分团队会话 |
 
-| **D（新，待用户确认）** | 宿主层 `agent/pre-step`：仅对团队会话、`P / W ≥ compactAtRatio` 时，`serviceFor(agent,'compaction').compactRegion(...)`，范围按 compaction-basic 同法计算并保留最近 `retainRatio` 原文 | 45% 只配一处、只作用于团队会话、不改全局配置；代价：要复刻范围选择（或依赖 `@deepseek-ai/dsh-compaction-basic` 导出的 `selectCompactableRange`，版本耦合）；与 compaction-basic 自己的 pre-step 并发需靠持久锁（`compactRegion` 在压缩进行中会抛错）；需 PoC |
+| **D（用户已选，2026-10-14）** | 宿主层 `agent/pre-step`：仅对团队会话、`P / W ≥ compactAtRatio` 时取 `serviceFor(agent,'compaction')` 主动压缩，见下方「D 的两种调用」 | 45% 只配一处、只作用于团队会话、不改全局配置；宿主 80% 自动压缩保持不动作兜底；需 PoC |
+
+**D 的两种调用**【源码】
+
+| | D1：`compactIfNeeded(agent, 'context-overflow', signal)` | D2：`compactRegion(start, end, agent, signal)` |
+|---|---|---|
+| 范围 | basic 实现：先跑 tool-result-pruner（无模型裁大工具结果），再 `selectCompactableRange(session, measurement, 0)`（`compaction-basic/src/index.ts:294-301`） | 插件自己算：从 surface 第一个非 system 节点起，向前累加最新节点 token 直到达到保留预算，再回退到工具调用配对平衡的边界（照 `region.ts:117-160` 同法） |
+| `retain = 0` 的真实含义 | 循环在第一次迭代就 break，**最后一个 surface 节点永远保留**，再回退到配对平衡处（`region.ts:133-147`）⇒ 不是「一条不留」，而是「只留最后一个节点及其配对」；system 头（节点 0）不动 | 保留量由插件配置 `retainRatio` 决定，设 0 即与 D1 相同 |
+| 代码量 | 零范围代码，只用公共接口 | 要复刻范围选择与配对判断，或 import `@deepseek-ai/dsh-compaction-basic/src/region.ts`（包导出了 `./src/*`，但属内部实现，版本耦合） |
+| 风险 | 语义借用「overflow」分支，只影响日志文案（`compaction/start` 事件不含 trigger 字段，`compaction/src/types.ts:24`）；若 preset 换了别的压缩引擎，overflow 行为可能不同 | 范围算错会被 `validateSurfaceRegion` 拒绝；自动压缩须在 open turn 内（`region.ts` `compactRegion: no open turn` 检查），pre-step 中满足 |
+| 与理念 | 符合「换窗 = 只带摘要 + 笔记 + hint，细节用 history 工具回读」 | 可调成同样效果，也可留一点最近原文 |
+
+建议 v1 用 **D1**（与设计理念一致、零范围代码），D2 作为将来需要「保留最近 N% 原文」时的扩展。Codex 本地压缩会保留最近用户原话 ≤ 20,000 token（`codex-rs/core/src/compact.rs:63`）；团队成员的「原话」就是任务契约，已在 `team.json`，且 hint 会带任务 id 与标题，`history` 工具可回读原文，所以不保留最近原文可以接受。【待用户确认】
 
 触发点公式是 `floor(min(W × thresholdRatio, W − O − headroomTokens))`（`README.md:62`）：本机 `W = 1,000,000`、`O = 200,000`、`B = 65,536` ⇒ `min(450,000, 734,464) = 450,000`，**45% 起作用**；小窗口路由（如 128k）上 `W − O − B` 可能先于 45% 生效，届时实际触发点更早，插件提示文本里的「45%」会偏。
 
@@ -343,6 +355,7 @@ section / context 的 `text()` 对无团队会话返回空串；队长建团后�
 | 工具 | 照 Codex：`list_windows` / `list_items` / `read_item` / `search_contents`（字面包含、区分大小写）；归入 `history` 开关 |
 | 成员边界 | 成员会话只读 `inheritedEventCount` 之后的事件，不能读到队长继承过来的上下文 |
 | 代价 | 每次读要先 flush，且整份会话文件解码一次（按文件修订缓存，`jsonl/index.ts:753-786`） |
+| 降低解码成本（实验） | 会话文件是 **zstd 压缩，不是加密**。DSH 官方提供开关：`session-persistence-jsonl` 行的 `compression: 'zstd' \| 'none'`（`session-persistence-jsonl/src/index.ts:84-87`、`:254`；README 配置表 `compression` 行），设 `none` 后为纯文本 JSONL，省掉解压，但读取仍是整文件扫描 + JSON 解析。该行在宿主 base 层（`bundle/base/cordis.patch.yml:132-135`），覆盖时须重述 `root: !!js dshHomePath('sessions')`；作用于全部会话，已有 zstd 文件切换后的迁移行为需 PoC【推断】。因属全局存储配置，**不放进本插件 bundle**，作为文档里的可选 profile 片段由用户自行开启；插件代码两种格式都经 persistence 读取，无需改动 |
 | 待 PoC | web bundle 下宿主层模型工具在成员 preset 会话中是否可见（Contexera 记录称该 bundle 关闭宿主层模型工具；但 agent-teams 自身工具即为宿主层注册）；0.2.1-alpha.2 上 persistence 只读实测 |
 
 ---
@@ -388,12 +401,14 @@ section / context 的 `text()` 对无团队会话返回空串；队长建团后�
 | 新 | 名称 / 形态 | **dsh-token-budget**（显式与隐式统一），独立 dsh 插件，与社区原版并存；两个开关 = `notes` / `history` |
 | 7-8 | 本会话先前窗口原文 | **需要**：做只读的 `history.*` 等价工具；不依赖已弃用接口与 `session-query`，倾向自建（方案调研中：`context-compare/community-plugins-survey.md`） |
 | 7-9 | fork 窗口计数 | **不扣除**（同意建议） |
+| §2.4 | 45% 落点 | **方案 D**（替代 A）：插件仅对团队会话主动压缩 |
+| 7-8 / §4.4 | 只读历史实现 | **采纳 §4.4**：persistence 只读分页 + 内存索引；zstd→none 作为可选实验配置 |
 | 7-10 | 摘要拦截 | **v1 不拦截**；之后视 PoC-8 再决定是否加实验开关。用户认为「返回插件自拼的短摘要（任务契约 + 笔记指针）」可能是理想状态 |
 | 7-1 | 缓存论 | **分支 B**：窗口内会变的内容走运行时上下文；system 头只放每会话固定的指针 |
 | 7-3 | 合并层 | 设置开关 `notesMerge.enabled`，**默认关 = 由队长维护** `workspace.md`；开启时用宿主 `ctx.llm.listProviders()` / `listModels(provider)` 列出用户 DSH 账户上的模型与推理强度（`LlmReasoningEffortInfo`，`llm/llm/src/types.ts:369-382`），由用户选择，再经 `ctx.llm.stream()` 调用 |
 | 7-4 | hint 来源 | 任务 id + 标题（缓存的 `team.json`）+ 笔记元数据（自己的文件 + 队友最近 ≤5 个） |
 | 新 | 提示档位 | `bucketStep` = **3%**（37/40/43%） |
-| 7-7 / §2.4 | 45% 落点 | **方案 A**：自动压缩是兜底；本质是把 compaction-basic 的触发配置交给用户在 DSH 现有的 Agent presets 设置页里调，本插件只在提示文本里镜像这个数 |
+| 7-7 / §2.4 | 45% 落点（已被方案 D 取代） | ~~方案 A~~：自动压缩是兜底；本质是把 compaction-basic 的触发配置交给用户在 DSH 现有的 Agent presets 设置页里调，本插件只在提示文本里镜像这个数 |
 
 ### 补充说明
 
@@ -411,8 +426,7 @@ section / context 的 `text()` 对无团队会话返回空串；队长建团后�
 
 ### 待用户确认
 
-- 7-8 实现路径按 §4.4 建议（persistence 只读分页 + 内存索引）是否采纳
-- §2.4 是否从方案 A 改为方案 D（插件只对团队会话在 45% 自行触发压缩）
+- 方案 D 用 D1（`compactIfNeeded` overflow 分支）还是 D2（`compactRegion` 自算范围）
 
 ---
 
