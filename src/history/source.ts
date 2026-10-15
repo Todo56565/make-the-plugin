@@ -43,7 +43,9 @@ export class HistorySource {
 
     const handle = await persistence.open(id, 'read')
     try {
-      const minSeq = Number(handle.inheritedEventCount)
+      // 宿主类型声明为必填；防御性兜底，避免 undefined → NaN 导致窗口不递增、继承前缀不过滤
+      const inherited = Number(handle.inheritedEventCount)
+      const minSeq = Number.isFinite(inherited) && inherited > 0 ? inherited : 0
       const events: EventLike[] = []
       for (let offset = 0; ; offset += PAGE) {
         signal?.throwIfAborted()

@@ -65,6 +65,8 @@ export function apply(ctx: Context, raw: Config): void {
   const hints = new WindowHintCache()
   /** 已告警过「取不到压缩引擎」的会话。 */
   const engineMissingWarned = new Set<string>()
+  /** history 读取源（开关 history 关闭时不创建）；会话结束时释放修订缓存。 */
+  const historySource = config.history ? new HistorySource(() => ctx.sessionPersistence) : undefined
 
   // 窗口计数投影
   ctx.effect(() => registerWindowCounter(ctx), 'dsh-token-budget: window projection')
@@ -82,6 +84,8 @@ export function apply(ctx: Context, raw: Config): void {
     notesPointer.forget(agent.id)
     hints.forget(agent.id)
     engineMissingWarned.delete(agent.id)
+    const sessionId = (agent as { session?: { id?: string } }).session?.id
+    if (sessionId !== undefined) historySource?.forget(sessionId)
   })
 
   // ── token budget：提示（runtime context，缓存分支 B）──
@@ -161,8 +165,8 @@ export function apply(ctx: Context, raw: Config): void {
   }
 
   // ── history：只读历史工具（设计 §4.4）──
-  if (config.history) {
-    const source = new HistorySource(() => ctx.sessionPersistence)
+  if (historySource !== undefined) {
+    const source = historySource
     ctx.effect(() => registerHistoryTools(ctx, {
       isTeamAgent: agent => teams.identityOf(agent) !== undefined,
       load: (agent, signal) => source.load(agent.session.id, signal, () => ctx.sessions.flush(agent.session)),

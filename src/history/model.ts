@@ -3,7 +3,7 @@
  *
  * - 窗口 N = 1 + 此前 `compaction/summary` 事件数；窗口 id 为 `w<N>`
  * - 条目只取产生消息的事件（user / assistant / tool / system / developer），条目 id 为 `e<seq>`
- * - 被压缩隐藏的事件取自 `compaction/summary.shadowedSeqs`，条目上标 `hidden`
+ * - 被隐藏的事件取自 `compaction/summary.shadowedSeqs` 与 `compaction/prune.shadowedSeqs`（宿主 tool-result pruner 裁剪超长工具结果时追加），条目上标 `hidden`；prune 不增加窗口计数
  * - 成员边界：只看 `seq >= minSeq`（fork 继承前缀之后）的事件
  */
 
@@ -116,10 +116,10 @@ export function buildHistoryModel(events: readonly EventLike[], minSeq = 0): His
   let window = 1
 
   for (const event of events) {
-    if (event.type === 'compaction/summary') {
+    if (event.type === 'compaction/summary' || event.type === 'compaction/prune') {
       const shadowed = asRecord(event.data)?.shadowedSeqs
       if (Array.isArray(shadowed)) for (const seq of shadowed) if (typeof seq === 'number') hiddenSeqs.add(seq)
-      if (event.seq >= minSeq) window += 1
+      if (event.type === 'compaction/summary' && event.seq >= minSeq) window += 1
       continue
     }
     if (event.type === 'tool/call') {

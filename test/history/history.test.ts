@@ -85,3 +85,31 @@ test('HistorySource：flush 后只读打开，按修订缓存', async () => {
   // 本会话 flush 失败也照常读取已落盘部分
   await source.load('s1', undefined, async () => { throw new Error('boom') })
 })
+
+test('buildHistoryModel：compaction/prune 标记隐藏但不增加窗口', () => {
+  const pruned: EventLike[] = [
+    user(1, '读文件'),
+    { type: 'tool/result', seq: 2, time: 2000, data: { message: { toolCallId: 'c1', content: [{ type: 'text', text: '超长原文' }] } } },
+    { type: 'compaction/prune', seq: 3, time: 3000, data: { shadowedRange: { start: 2, end: 2 }, shadowedSeqs: [2], shadowedTokenCount: 10 } },
+    { type: 'tool/result', seq: 4, time: 4000, data: { message: { toolCallId: 'c1', content: [{ type: 'text', text: '裁剪后' }] } } },
+  ]
+  const model = buildHistoryModel(pruned, 0)
+  assert.equal(model.currentWindow, 1)
+  assert.deepEqual(model.items.map(i => [i.id, i.hidden]), [['e1', false], ['e2', true], ['e4', false]])
+  assert.deepEqual(model.windows.map(w => [w.id, w.items, w.hiddenItems]), [['w1', 3, 1]])
+})
+
+test('HistorySource：inheritedEventCount 缺失时按 0 处理', async () => {
+  const persistence = {
+    flush: async () => {},
+    stat: async () => ({ revision: 1 }),
+    open: async () => ({
+      inheritedEventCount: undefined,
+      read: async (offset: number) => ({ events: offset === 0 ? [user(0, 'a'), { type: 'compaction/summary', seq: 1, time: 1, data: { shadowedSeqs: [0] } }, user(2, 'b')] : [] }),
+      close: async () => {},
+    }),
+  } as unknown as PersistenceLike
+  const model = await new HistorySource(() => persistence).load('s')
+  assert.equal(model.currentWindow, 2)
+  assert.deepEqual(model.items.map(i => [i.id, i.window, i.hidden]), [['e0', 1, true], ['e2', 2, false]])
+})
