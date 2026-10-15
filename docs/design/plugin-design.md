@@ -393,6 +393,15 @@ section / context 的 `text()` 对无团队会话返回空串；队长建团后�
 | PoC-8 | 子会话在压缩后是否真的去用 notes / history（行为，不是能力） | 统计压缩后 N 步内 `team_notes read` / `team_history` 调用；对照组关闭预算提示 | `临时记录.md` §九-2、§十三-5 |
 | PoC-9 | `compactAtRatio` 与实际压缩点一致 | 记录 `compaction/start` 前一步的 `P / W`；理想值接近 0.45（小窗口路由上可能更早，见 §2.4） | §2.4 |
 
+**实测记录（2026-10-15，dsh 0.2.0-rc.2 web，profile poc，测试阈值 remind 0.03 / compact 0.05 / step 0.01，成员 carol）**
+
+- PoC-4 通过：窗口 1 内预算提示只在跨档时追加（3%、4% 各一次），压缩后新窗口第一条快照不再带提示，新窗口再次到 3% 时重新出现。
+- PoC-5 通过：压缩检查点之后的第一步即出现新的 runtime-context 快照。
+- PoC-9 通过：设 5% 时 `compaction/start` 前一步约 4.9%–6.0%，压缩后约 2.3%–3.0%。
+- 压缩后 `team_notes`、`history_*`（含 w99 报错）均正常。
+- 实测发现并修复：宿主每步**先组装**（context 的 `text()` 只在这里求值一次），**后跑** `agent/pre-step`。原先在 pre-step 压缩，导致压缩后第一步仍带压缩前的「已用 5%」提示和旧窗口 hint。现改为在 `system-prompt/assemble` 瀑布里压缩，并就地重算本插件的两段 context；`agent/pre-step` 保留为兜底（同窗口只尝试一次）。复测通过。
+- 已知：成员会话第 1 步组装时团队身份尚不可知（认领任务前），hint 从第 2 步开始出现，不影响功能。
+
 ---
 
 ## 7. 决议与待确认（2026-10-14 两轮用户答复后）

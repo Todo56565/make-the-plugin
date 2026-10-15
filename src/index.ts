@@ -12,7 +12,7 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import type {} from '@deepseek-ai/dsh-agent'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { GenerateOptions } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-system-prompt'
@@ -47,6 +47,8 @@ export const inject = ['systemPrompt', 'tools', 'tokenMeter', 'sessionProjection
 
 /** 预算提示 context 的顺序：排在 SUBAGENT_DELEGATION(120) 之后。 */
 const BUDGET_CONTEXT_ORDER = 130
+const BUDGET_CONTEXT_NAME = 'dsh-token-budget:budget'
+const HINT_CONTEXT_NAME = 'dsh-token-budget:hint'
 
 export function apply(ctx: Context, raw: Config): void {
   const config = toSettings(raw)
@@ -89,51 +91,53 @@ export function apply(ctx: Context, raw: Config): void {
   })
 
   // ── token budget：提示（runtime context，缓存分支 B）──
+  const budgetText = (assembly: { agent?: Agent }): string => {
+    const agent = assembly.agent
+    if (agent === undefined) return ''
+    try {
+      if (teams.identityOf(agent) === undefined) return ''
+      const usage = usageOf(ctx, agent.session)
+      if (usage === undefined) return ''
+      const bucket = bucketOf(usage.ratio, config.budget.remindAtRatio, config.budget.bucketStep)
+      if (bucket === undefined) return ''
+      return reminderText({ bucket, compactAtRatio: config.budget.compactAtRatio, notes: config.notes })
+    } catch (error) {
+      // text() 在组装内同步执行，抛错会让整步失败：一律吞掉并告警
+      logger.warn(`预算提示生成失败：${String(error)}`)
+      return ''
+    }
+  }
   ctx.effect(() => ctx.systemPrompt.context({
-    name: 'dsh-token-budget:budget',
+    name: BUDGET_CONTEXT_NAME,
     order: BUDGET_CONTEXT_ORDER,
-    text: (assembly) => {
-      const agent = assembly.agent
-      if (agent === undefined) return ''
-      try {
-        if (teams.identityOf(agent) === undefined) return ''
-        const usage = usageOf(ctx, agent.session)
-        if (usage === undefined) return ''
-        const bucket = bucketOf(usage.ratio, config.budget.remindAtRatio, config.budget.bucketStep)
-        if (bucket === undefined) return ''
-        return reminderText({ bucket, compactAtRatio: config.budget.compactAtRatio, notes: config.notes })
-      } catch (error) {
-        // text() 在组装内同步执行，抛错会让整步失败：一律吞掉并告警
-        logger.warn(`预算提示生成失败：${String(error)}`)
-        return ''
-      }
-    },
+    text: budgetText,
   }), 'dsh-token-budget: budget context')
 
   // ── 窗口 hint：任务 + 笔记元数据，只在窗口变化时重算 ──
+  const windowHintText = (assembly: { agent?: Agent }): string => {
+    const agent = assembly.agent
+    if (agent === undefined) return ''
+    try {
+      const identity = teams.identityOf(agent)
+      if (identity === undefined) return ''
+      const key = `${windowOf(ctx, agent.session) ?? 0}:${identity.team.id}`
+      return hints.get(agent.id, key, () => hintText({
+        identity,
+        notes: config.notes,
+        history: config.history,
+        metas: config.notes ? listNoteMetasSync(identity) : [],
+        recentNotes: config.notesOptions.hintRecentNotes,
+        maxBytes: config.notesOptions.hintMaxBytes,
+      }))
+    } catch (error) {
+      logger.warn(`窗口 hint 生成失败：${String(error)}`)
+      return ''
+    }
+  }
   ctx.effect(() => ctx.systemPrompt.context({
-    name: 'dsh-token-budget:hint',
+    name: HINT_CONTEXT_NAME,
     order: HINT_CONTEXT_ORDER,
-    text: (assembly) => {
-      const agent = assembly.agent
-      if (agent === undefined) return ''
-      try {
-        const identity = teams.identityOf(agent)
-        if (identity === undefined) return ''
-        const key = `${windowOf(ctx, agent.session) ?? 0}:${identity.team.id}`
-        return hints.get(agent.id, key, () => hintText({
-          identity,
-          notes: config.notes,
-          history: config.history,
-          metas: config.notes ? listNoteMetasSync(identity) : [],
-          recentNotes: config.notesOptions.hintRecentNotes,
-          maxBytes: config.notesOptions.hintMaxBytes,
-        }))
-      } catch (error) {
-        logger.warn(`窗口 hint 生成失败：${String(error)}`)
-        return ''
-      }
-    },
+    text: windowHintText,
   }), 'dsh-token-budget: window hint')
 
   // ── notes：工具 + 稳定指针 ──
@@ -184,14 +188,15 @@ export function apply(ctx: Context, raw: Config): void {
   }
 
   // ── token budget：45% 主动压缩（方案 D1）──
-  ctx.on('agent/pre-step', async ({ agent, signal }, next) => {
-    if (signal.aborted) return next()
+  /** 达到阈值时主动压缩；返回本次是否真的压缩了。 */
+  const maybeCompact = async (agent: Agent, signal: AbortSignal): Promise<boolean> => {
+    if (signal.aborted) return false
     try {
-      if (teams.identityOf(agent) === undefined) return next()
+      if (teams.identityOf(agent) === undefined) return false
       const usage = usageOf(ctx, agent.session)
-      if (usage === undefined || usage.ratio < config.budget.compactAtRatio) return next()
+      if (usage === undefined || usage.ratio < config.budget.compactAtRatio) return false
       const window = windowOf(ctx, agent.session) ?? 0
-      if (!gate.canAttempt(agent.id, window)) return next()
+      if (!gate.canAttempt(agent.id, window)) return false
       const engine = compactionEngineOf(ctx, agent)
       if (engine === undefined) {
         // 该 agent 的 preset 没装压缩，或 serviceFor 暂时取不到：不消耗本窗口的尝试次数，下一步再取。
@@ -200,7 +205,7 @@ export function apply(ctx: Context, raw: Config): void {
           engineMissingWarned.add(agent.id)
           logger.warn(`会话 ${agent.id} 已用 ${(usage.ratio * 100).toFixed(1)}%，但取不到压缩引擎（该 preset 未装压缩或暂未就绪），本步跳过主动压缩，之后每步重试`)
         }
-        return next()
+        return false
       }
       engineMissingWarned.delete(agent.id)
       gate.begin(agent.id, window)
@@ -209,12 +214,39 @@ export function apply(ctx: Context, raw: Config): void {
         logger.info(result === null
           ? `会话 ${agent.id} 已用 ${(usage.ratio * 100).toFixed(1)}%，没有可压缩的范围`
           : `会话 ${agent.id} 已用 ${(usage.ratio * 100).toFixed(1)}%，已主动压缩`)
+        return result !== null
       } finally {
         gate.end(agent.id)
       }
     } catch (error) {
       logger.warn(`主动压缩失败，继续本步：${error instanceof Error ? error.message : String(error)}`)
+      return false
     }
+  }
+
+  // 主路径：在 system-prompt/assemble 里压缩。
+  // 宿主每步先组装（runtime context 的 text() 只在这里求值一次），再跑 agent/pre-step；
+  // 若在 pre-step 才压缩，压缩后第一步带的仍是压缩前算出的预算提示和窗口 hint。
+  // 组装时各 context 已求值，所以压缩后就地重算本插件的两段。
+  ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
+    const agent = context.agent
+    const signal = context.signal
+    const compacted = agent !== undefined && signal !== undefined && await maybeCompact(agent, signal)
+    const assembly = await next()
+    if (!compacted) return assembly
+    return {
+      ...assembly,
+      contexts: assembly.contexts.map(entry => entry.name === BUDGET_CONTEXT_NAME
+        ? { ...entry, text: budgetText(context) }
+        : entry.name === HINT_CONTEXT_NAME
+          ? { ...entry, text: windowHintText(context) }
+          : entry),
+    }
+  })
+
+  // 兜底：组装上下文不带 agent / signal 的宿主仍在 pre-step 压缩（同窗口只尝试一次，与主路径不重复）
+  ctx.on('agent/pre-step', async ({ agent, signal }, next) => {
+    await maybeCompact(agent, signal)
     return next()
   })
 }
