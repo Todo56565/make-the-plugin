@@ -35,11 +35,15 @@ export class TeamDirectory {
     this.now = now
   }
 
-  /** 该 agent 的团队身份；不是团队会话返回 undefined。 */
-  identityOf(agent: AgentLike): TeamIdentity | undefined {
+  /**
+   * 该 agent 的团队身份；不是团队会话返回 undefined。
+   * `fresh`：「不是团队」的缓存结果不算数，重新读盘（工具调用用：新成员会话可能在
+   * team.json 写入成员 id 之前就组装过 prompt，留下了短时的否定缓存）。
+   */
+  identityOf(agent: AgentLike, fresh = false): TeamIdentity | undefined {
     const cached = this.entries.get(agent.id)
     const now = this.now()
-    if (cached !== undefined && (cached.identity !== undefined || now - cached.at < this.negativeTtlMs)) {
+    if (cached !== undefined && (cached.identity !== undefined || (!fresh && now - cached.at < this.negativeTtlMs))) {
       return cached.identity
     }
     const identity = resolveIdentity({

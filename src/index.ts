@@ -141,7 +141,7 @@ export function apply(ctx: Context, raw: Config): void {
     const storeFor = createStoreCache(() => config.notesOptions.maxFileBytes)
     registerNotesMerge(ctx, config, storeFor, logger)
     ctx.effect(() => registerTeamNotesTool(ctx, {
-      identityOf: agent => teams.identityOf(agent),
+      identityOf: agent => teams.identityOf(agent, true),
       storeFor,
       maxResults: config.historyOptions.maxResults,
     }), 'dsh-token-budget: team_notes tool')
@@ -168,7 +168,7 @@ export function apply(ctx: Context, raw: Config): void {
   if (historySource !== undefined) {
     const source = historySource
     ctx.effect(() => registerHistoryTools(ctx, {
-      isTeamAgent: agent => teams.identityOf(agent) !== undefined,
+      isTeamAgent: agent => teams.identityOf(agent, true) !== undefined,
       load: (agent, signal) => source.load(agent.session.id, signal, () => ctx.sessions.flush(agent.session)),
       limits: () => config.historyOptions,
     }), 'dsh-token-budget: history tools')
@@ -177,7 +177,7 @@ export function apply(ctx: Context, raw: Config): void {
   // ── context_remaining 工具（设计 §4.1）──
   if (config.budget.tool) {
     ctx.effect(() => registerContextRemainingTool(ctx, {
-      isTeamAgent: agent => teams.identityOf(agent) !== undefined,
+      isTeamAgent: agent => teams.identityOf(agent, true) !== undefined,
       usage: agent => usageOf(ctx, agent.session),
       compactAtRatio: () => config.budget.compactAtRatio,
     }), 'dsh-token-budget: context_remaining tool')

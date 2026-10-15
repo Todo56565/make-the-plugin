@@ -74,6 +74,7 @@ test('TeamDirectory：否定结果短时缓存，事件后失效', () => {
   assert.equal(dir.identityOf(agent), undefined)
   writeFileSync(join(cwd, '.agent-teams', 'team-a', 'team.json'), JSON.stringify(team('team-a', 'c1', [['m1', 'Alice'], ['m2', 'Bob']])))
   assert.equal(dir.identityOf(agent), undefined, 'TTL 内仍用缓存')
+  assert.equal(dir.identityOf(agent, true)?.agentKey, 'Bob', 'fresh 跳过否定缓存（工具调用）')
   dir.invalidate()
   assert.equal(dir.identityOf(agent)?.agentKey, 'Bob')
   now = 1_000_000

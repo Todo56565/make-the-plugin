@@ -59,7 +59,7 @@ function roleOf(role: string | null | undefined): HistoryRole | null {
 
 export function runListItems(model: HistoryModel, args: ListArgs, limits: HistoryLimits): string {
   const items = filterItems(model, { windowId: args.window_id, role: roleOf(args.role), toolName: args.tool_name })
-  if (items === undefined || items.length === 0) return '没有符合条件的条目。'
+  if (items.length === 0) return '没有符合条件的条目。'
   const limit = clamp(args.limit, limits.maxListItems, limits.maxListItems)
   const page = ordered(items, args.recent_first).slice(0, limit)
   const preview = clamp(args.max_chars_per_item, PREVIEW_CHARS, limits.maxReadChars)
@@ -85,7 +85,6 @@ export function runReadItem(model: HistoryModel, args: { window_id: string; item
 export function runSearch(model: HistoryModel, args: ListArgs & { query: string }, limits: HistoryLimits): string {
   if (args.query === '') throw new Error('query 不能为空')
   const items = filterItems(model, { windowId: args.window_id, role: roleOf(args.role), toolName: args.tool_name })
-  if (items === undefined) return `没有找到「${args.query}」。`
   const limit = clamp(args.limit, limits.maxResults, limits.maxResults)
   const hits = ordered(items, args.recent_first).filter(item => item.text.includes(args.query))
   if (hits.length === 0) return `没有找到「${args.query}」。`

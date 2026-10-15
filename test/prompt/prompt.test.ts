@@ -42,6 +42,7 @@ test('hint：任务、笔记元数据、上限', () => {
   assert.match(text, /bob\.md/)
   assert.doesNotMatch(text, /- workspace\.md/, 'recentNotes=1 只列一个')
   assert.match(text, /history/)
+  assert.match(text, /本窗口开始时的快照/)
   assert.equal(hintText({ identity: member, notes: true, history: false, metas, recentNotes: 5, maxBytes: 50 }), '')
   assert.doesNotMatch(hintText({ identity: member, notes: false, history: false, metas, recentNotes: 5, maxBytes: 4000 }), /笔记/)
 })

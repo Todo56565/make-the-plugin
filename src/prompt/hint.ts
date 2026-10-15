@@ -51,7 +51,10 @@ function describe(meta: NoteMeta | undefined, path: string): string {
 /** 生成 hint；超过上限返回空串。 */
 export function hintText(input: HintInput): string {
   const { identity } = input
-  const lines = [`【团队上下文】团队「${identity.team.name}」（${identity.team.id}），你的身份：${identity.agentKey}。`]
+  const lines = [
+    `【团队上下文】团队「${identity.team.name}」（${identity.team.id}），你的身份：${identity.agentKey}。`,
+    `以下状态是本窗口开始时的快照，之后可能已变化；当前状态以团队任务工具${input.notes ? '和 team_notes ' : ''}为准。`,
+  ]
   const mine = identity.team.tasks.filter(t => t.assignee === identity.agentKey && !TERMINAL.has(t.status))
   if (mine.length > 0) {
     lines.push('你当前的任务：')

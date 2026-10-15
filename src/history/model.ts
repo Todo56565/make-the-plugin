@@ -191,11 +191,15 @@ export function parseItemId(id: string): number | undefined {
   return match === null ? undefined : Number(match[1])
 }
 
-export function filterItems(model: HistoryModel, filter: ItemFilter): HistoryItem[] | undefined {
+/** 按条件过滤条目；window_id 无法识别或不存在时抛错。 */
+export function filterItems(model: HistoryModel, filter: ItemFilter): HistoryItem[] {
   let window: number | undefined
   if (filter.windowId != null && filter.windowId !== '') {
     window = parseWindowId(filter.windowId)
-    if (window === undefined) return undefined
+    if (window === undefined || (window !== model.currentWindow && !model.windows.some(w => w.index === window))) {
+      const ids = model.windows.map(w => w.id)
+      throw new Error(`窗口 ${filter.windowId} 不存在${ids.length > 0 ? `（现有：${ids.join('、')}）` : ''}`)
+    }
   }
   return model.items.filter(item =>
     (window === undefined || item.window === window)
