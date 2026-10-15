@@ -402,6 +402,7 @@ section / context 的 `text()` 对无团队会话返回空串；队长建团后�
 - 实测发现并修复：宿主每步**先组装**（context 的 `text()` 只在这里求值一次），**后跑** `agent/pre-step`。原先在 pre-step 压缩，导致压缩后第一步仍带压缩前的「已用 5%」提示和旧窗口 hint。现改为在 `system-prompt/assemble` 瀑布里压缩，并就地重算本插件的两段 context；`agent/pre-step` 保留为兜底（同窗口只尝试一次）。复测通过。
 - PoC-6 通过（代码级，用 agent-teams 0.1.23 真实的 `readArtifactScope`）：工作区范围 `./` 与 `src/` 下，写入 `.agent-teams/.context/notes/` 的成员笔记和 `workspace.md` 前后读取结果逐字节相同、无 gap；对照组在根目录写 `notes.md` 会被读到。`agent_teams_status` 的审计（`auditTeamWorkspace`）只由这个读取器和已记录路径的 mtime 组成，笔记路径不会进入任何契约（`isDefaultExcludedPath`），所以结论不变。前提是 `stateDir` 保持在 `.agent-teams` 下，否则插件启动时告警。
 - PoC-7 通过（改实现后）：原实现中三个能力开关只在 apply 时决定是否注册，改了要重启 DSH。现改为 volatile 更新时注册/注销。实测：同一个已打开的会话，设置页关掉团队笔记后，下一次请求的 `request/header` 少了 `team_notes`，宿主自动插入 `tool-removal` 开发者消息；重新打开后新请求里 `team_notes` 回来。
+- PoC-8 通过（2026-10-15，团队 poc8-test，成员 dave，阈值 3%/5%）：任务只要求分 7 段读 3714 行文件、最后给出每段首行与 function 次数表，没有任何关于笔记、历史或压缩的指令。dave 在收到【上下文预算】提示后主动用 team_notes 写入已统计数据，并注明“压缩后以此为准”；第 4 段读完时触发压缩，之后继续追加进度并完成，7 段数据全部正确（31/18/19/14/15/0/6）。压缩后没有调用 team_notes read 或 history 工具：所需数据已在压缩摘要和笔记里。结论：预算提示足以让成员主动写笔记；history 是兜底，正常任务里不一定用到。
 - 已知：成员会话第 1 步组装时团队身份尚不可知（认领任务前），hint 从第 2 步开始出现，不影响功能。
 
 ---
