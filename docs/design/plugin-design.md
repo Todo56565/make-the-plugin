@@ -139,7 +139,7 @@ interface Config {
 
 ### 2.4 「已用 45% 强制换窗压缩」的落点【源码 + 推断】
 
-**DSH 里「换窗」= 摘要压缩**：没有 Codex 那种不做摘要、直接开新窗口的路径（`临时记录.md` §五）。所以 45% 的含义是「让 compaction-basic 在 `P ≥ 0.45 × W` 时自动压缩」。
+**DSH 里「换窗」= 摘要压缩**：宿主没有内建的不做摘要、直接开新窗口的路径（`临时记录.md` §五）；但 `summarize()` 是 compaction-basic 公开的定制钩子（`lib/index.js:796`、`:893`），返回模板即可实现零模型换窗，这是 §7-10 的后续版本方案（2026-10-15 勘误）。所以 45% 的含义是「让 compaction-basic 在 `P ≥ 0.45 × W` 时自动压缩」。
 
 **更正（2026-10-14）**：原先认为本插件触发不了压缩，依据是「宿主层拿不到 `ctx.compaction`」。社区调研发现官方通道 `ctx.agentPresets.serviceFor(agent, 'compaction')` 可按 agent 取到 preset 内的压缩引擎（`preset/agent-preset-registry/src/index.ts:319-327`；dsh-session-manager 即用此通道改阈值，`community/dsh-session-manager/src/index.ts:337-357`）。拿到引擎后的公共接口：
 
@@ -175,7 +175,7 @@ interface Config {
 
 触发点公式是 `floor(min(W × thresholdRatio, W − O − headroomTokens))`（`README.md:62`）：本机 `W = 1,000,000`、`O = 200,000`、`B = 65,536` ⇒ `min(450,000, 734,464) = 450,000`，**45% 起作用**；小窗口路由（如 128k）上 `W − O − B` 可能先于 45% 生效，届时实际触发点更早，插件提示文本里的「45%」会偏。
 
-本插件侧：`compactAtRatio` 只用于提示文本（「已用 41%，约 45% 时自动压缩」）与 PoC-9 的偏差校验；**不驱动压缩**。
+本插件侧（方案 D1）：`compactAtRatio` 驱动团队会话的主动压缩（`agent/pre-step` 达到 `W × compactAtRatio` 时调 `compactIfNeeded`），同时用于提示文本与 PoC-9 的偏差校验。（方案 A 时期写的是「不驱动压缩」，2026-10-15 勘误）
 
 ### 2.3 生效与热重载
 
@@ -252,7 +252,7 @@ agent-teams 没有公共 API，本插件**按其磁盘格式自行解析**（只
 4. **成员判定**：`team.members.some(m => m.id === agent.id)` ⇒ 成员，`agentKey = m.name`（`types.ts:263-266`：`id` = 持久子代理会话 id，`name` = 成员名）
 5. **队长判定**：`team.captainSessionId === agent.id`（`types.ts:364`）⇒ `agentKey = 'captain'`（`state.ts:52` `CAPTAIN_KEY`）。agent-teams 还承认「队长的 fork 后代」为 lead（`lineage.ts:162-175` `teamLeadMatch`），本插件 v1 **不复刻祖先链**，只认精确 id；fork 后代按非团队处理【推断：影响面需 PoC-3 确认】
 6. 命中多个团队 ⇒ 视为无团队并 `logger.warn`（agent-teams 在此抛 `ambiguous AgentTeams membership`，`capabilities.ts:46`）
-7. 解析在 `agent/created` 时做一次并缓存；之后由 `session/event` 中的 `agent-teams/member-added|member-removed|team-created|team-deleted`（`dsh-agent-teams/src/event-types.ts:111-161`，追加到**队长**会话，`events.ts:1-9`）触发失效重算
+7. **实现（2026-10-15 勘误）**：宿主 0.2.0-rc.2 不认识 `agent-teams/*` 事件类型，下述失效信号收不到；实际改为按需解析并缓存，「非团队」结果只缓存 5 秒，以 `agent_teams_*` 工具调用返回作为失效信号（`src/team/directory.ts`）。原设计：解析在 `agent/created` 时做一次并缓存；之后由 `session/event` 中的 `agent-teams/member-added|member-removed|team-created|team-deleted`（`dsh-agent-teams/src/event-types.ts:111-161`，追加到**队长**会话，`events.ts:1-9`）触发失效重算
 
 **失败回退**：任何读/解析异常 ⇒ 当作非团队会话、只打 warn。理由：section/context 的 `text()` 在 `assemble()` 内同步执行，**抛异常会让整步组装失败**（`system-prompt/src/index.ts:658` `typeof section.text === 'function' ? section.text(context) : …`，无 try/catch）。agent-teams 自己也是「damaged state must not disable ordinary conversation」（`capabilities.ts:73-77`）。【源码】
 
@@ -379,7 +379,7 @@ section / context 的 `text()` 对无团队会话返回空串；队长建团后�
 
 ## 6. PoC 验证清单
 
-每项给出可证伪的观测点。前置：**先按 `临时记录.md` §14.3 回退降阈值覆盖，再按 §2.4 把 `thresholdRatio` 设为 0.45**，否则 PoC-4 / PoC-9 的数值无意义。
+每项给出可证伪的观测点。前置：**先按 `临时记录.md` §14.3 回退降阈值覆盖**；D1 下宿主 `thresholdRatio` 保持默认作兜底，45% 由插件的 `compactAtRatio` 驱动（2026-10-15 勘误，原文为方案 A 时期的「把 `thresholdRatio` 设为 0.45」），否则 PoC-4 / PoC-9 的数值无意义。
 
 | # | 要证什么 | 观测 / 判据 | 依赖的推断 |
 |---|---|---|---|
@@ -410,7 +410,7 @@ section / context 的 `text()` 对无团队会话返回空串；队长建团后�
 | 7-9 | fork 窗口计数 | **不扣除**（同意建议） |
 | §2.4 | 45% 落点 | **方案 D1**（替代 A）：插件仅对团队会话调用 `compactIfNeeded(agent,'context-overflow')` 主动压缩 |
 | 7-8 / §4.4 | 只读历史实现 | **采纳 §4.4**：persistence 只读分页 + 内存索引；zstd→none 作为可选实验配置 |
-| 7-10 | 摘要拦截 | **v1 不拦截**；之后视 PoC-8 再决定是否加实验开关。用户认为「返回插件自拼的短摘要（任务契约 + 笔记指针）」可能是理想状态 |
+| 7-10 | 摘要拦截 | **v1 不拦截**。**目标方案（后续版本）= 模板交接 + LLM 兜底**：笔记新鲜时返回插件自拼的短交接（任务契约 + 笔记指针），缺失或过期时走原 LLM 摘要；拦截点倾向 `serviceFor` 取得的引擎 `summarize()` 钩子，草案与待定项见 `docs/reference/dsh-plugin-survey-2026-10-14/04-handoff-design.md`、`handoff-prep/E-synthesis.md`。用户 2026-10-14 认为这是理想状态，2026-10-15 确认按原进度在后续版本加入 |
 | 7-1 | 缓存论 | **分支 B**：窗口内会变的内容走运行时上下文；system 头只放每会话固定的指针 |
 | 7-3 | 合并层 | 设置开关 `notesMerge.enabled`，**默认关 = 由队长维护** `workspace.md`；开启时用宿主 `ctx.llm.listProviders()` / `listModels(provider)` 列出用户 DSH 账户上的模型与推理强度（`LlmReasoningEffortInfo`，`llm/llm/src/types.ts:369-382`），由用户选择，再经 `ctx.llm.stream()` 调用。**触发时机（用户确认，2026-10-14）：成员任务完成时**合并该成员笔记。宿主 0.2.0-rc.2 不认识 `agent-teams/*` 事件类型，agent-teams 会跳过写入（`dsh-agent-teams/src/events.ts:45-54`），所以实现改为：每个 `agent_teams_*` 工具调用返回后重读 team.json，与快照比较找出新完成的成员任务；同一工作区排队执行，读 → 调模型 → 条件写入，冲突重试一次，超限或 `max-tokens` 截断则放弃 |
 | 7-4 | hint 来源 | 任务 id + 标题（缓存的 `team.json`）+ 笔记元数据（自己的文件 + 队友最近 ≤5 个） |
@@ -419,7 +419,7 @@ section / context 的 `text()` 对无团队会话返回空串；队长建团后�
 
 ### 补充说明
 
-**直接调自动压缩函数是否可行（7-7 追问）→ 不可行，有三道门。** ① 自动压缩的判定函数 `compactIfNeeded` 是 compaction-basic 引擎实例的内部方法，不是公共接口；公共接口只有 `ctx.compaction.compactNow / compactRegion`（`compaction/src/index.ts:139-190`）。② `ctx.compaction` 只在 preset 的 `isolate: { compaction: true }` 组内可见，宿主层插件注入它会永远挂起（§3.2）——这是最硬的一道。③ 即使拿到，`compactNow` 要求 agent 空闲，否则 `busy`；两者都受 `compaction/start…end` 持久锁约束。
+**（已过时，被 §2.4 的 `serviceFor` 更正与方案 D1 取代）直接调自动压缩函数是否可行（7-7 追问）→ 不可行，有三道门。** ① 自动压缩的判定函数 `compactIfNeeded` 是 compaction-basic 引擎实例的内部方法，不是公共接口；公共接口只有 `ctx.compaction.compactNow / compactRegion`（`compaction/src/index.ts:139-190`）。② `ctx.compaction` 只在 preset 的 `isolate: { compaction: true }` 组内可见，宿主层插件注入它会永远挂起（§3.2）——这是最硬的一道。③ 即使拿到，`compactNow` 要求 agent 空闲，否则 `busy`；两者都受 `compaction/start…end` 持久锁约束。
 
 **7-8 「原文」的含义。** 指上一个窗口里被摘要**替换掉的原始消息**（用户 / 助手 / 工具结果），不是摘要本身。它们仍在会话日志里，只是被 shadow。Codex 的 `history.*` 工具正是**只读**读取同一 rollout 里先前窗口的条目（`codex-rs/ext/history-notes/src/tools.rs:120`「Read a bounded range from private model-only history」，可按 `window_id` 过滤），从不修改。本插件若做，同样只读；非弃用读取接口已找到（`sessionPersistence` 只读句柄），用户已确认需要并采纳 §4.4 实现。
 

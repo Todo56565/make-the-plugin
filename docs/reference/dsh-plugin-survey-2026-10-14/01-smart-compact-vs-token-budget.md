@@ -12,7 +12,7 @@
 
 1. **只能选一个时，用 dsh-token-budget（make-the-plugin）做底座，不要装 smart-compact。** smart-compact 是给 dsh 0.1.5 时代、没有 preset 隔离的 profile 写的。在 agent-teams 0.1.23 要求的宿主 0.2.0-rc.2 上，它有三处核心功能实际失效或被覆盖：提醒到不了模型、`ctx_history` 读不到工具结果、自动换窗可能被 preset 自带的 80% LLM 摘要抢先（后两条见 §1.3）。
 2. **两者能同时装上**：工具名不重复，`compaction` 服务槽也不冲突，因为两边用的根本不是同一个引擎。但同时装的效果是互相干扰，而不是互相补充：两套 notes、两套 history、两个「剩余上下文」工具算法不同，换窗锚点还会让模型去读空的 `ctx_notes`。**不建议同时装。**
-3. **要从 smart-compact 移植的只有它真正的强项**：零模型调用的交接模板、笔记新鲜度检查、脱敏、`new_context`、运行状态文件。改成「通过 `serviceFor` 给 preset 引擎装一个只对团队会话生效的 `summarize` 钩子」，笔记新鲜时用模板、缺失或过期时退回原 LLM 摘要（用户 2026-10-14 确认，方案见 `04-handoff-design.md`）。核心工作量约 **4–5 人日**（明细见 §3）。
+3. **要从 smart-compact 移植的只有它真正的强项**：零模型调用的交接模板、笔记新鲜度检查、脱敏、`new_context`、运行状态文件。改成「通过 `serviceFor` 给 preset 引擎装一个只对团队会话生效的 `summarize` 钩子」，笔记新鲜时用模板、缺失或过期时退回原 LLM 摘要（后续版本目标方案，v1 不拦截，见 `04-handoff-design.md`）。核心工作量约 **4–5 人日**（明细见 §3）。
 
 ---
 
@@ -77,7 +77,7 @@
 
 *已定取舍（设计已写明并经用户确认，不算缺陷）*
 
-- **B2 → 已定取舍：45% 走 overflow 分支的 LLM 摘要，只保留最后一个节点及其配对。** 这是方案 D1：设计:165-168 写明范围选择与 `retain = 0` 的真实含义，设计:173 写明「v1 采用 D1（用户已确认，2026-10-14）」，并给出不保留最近原文的理由（任务契约在 `team.json`，hint 带任务 id 与标题，`history` 工具可回读原文）；决议表见设计:410。摘要提示词要求「不提压缩」这一点，设计:279 与记录:393 已经知晓，所以由插件观察事件、用笔记补足。v1 不拦截摘要是 §7-10 的决议（设计:412、:425-429）。成本口径更正：摘要请求复用会话自身的 system、tools 和前缀消息，大部分输入会命中 KV cache（basic `lib/index.js:890-892`；设计:374、:427；本机 cc 路由实测 406 条 assistant 消息中 402 条 `cacheReadTokens > 0`，记录:964）。所以 45% 比 80% 更频繁，主要多出来的是**输出 token 和等待摘要生成的时间**，未命中缓存的尾段输入是次要部分。用户 2026-10-14 追加的修订（笔记新鲜时用模板、零模型调用）见 `04-handoff-design.md`。
+- **B2 → 已定取舍：45% 走 overflow 分支的 LLM 摘要，只保留最后一个节点及其配对。** 这是方案 D1：设计:165-168 写明范围选择与 `retain = 0` 的真实含义，设计:173 写明「v1 采用 D1（用户已确认，2026-10-14）」，并给出不保留最近原文的理由（任务契约在 `team.json`，hint 带任务 id 与标题，`history` 工具可回读原文）；决议表见设计:410。摘要提示词要求「不提压缩」这一点，设计:279 与记录:393 已经知晓，所以由插件观察事件、用笔记补足。v1 不拦截摘要是 §7-10 的决议（设计:412、:425-429）。成本口径更正：摘要请求复用会话自身的 system、tools 和前缀消息，大部分输入会命中 KV cache（basic `lib/index.js:890-892`；设计:374、:427；本机 cc 路由实测 406 条 assistant 消息中 402 条 `cacheReadTokens > 0`，记录:964）。所以 45% 比 80% 更频繁，主要多出来的是**输出 token 和等待摘要生成的时间**，未命中缓存的尾段输入是次要部分。后续版本目标方案（笔记新鲜时用模板、零模型调用）见 `04-handoff-design.md`。
 - **B5（前半）→ 已定取舍：队长的 fork 后代按非团队处理。** 设计:252「v1 不复刻祖先链，只认精确 id」，影响面列入 PoC-3（设计:387）。代码一致（`src/team/identity.ts:5-6`）。
 - **「约 45%」在小窗口路由上偏差、`context_remaining` 的压缩点是估算 → 已知并已在设计中标注。** 设计:175 写明 `W − O − headroomTokens` 可能先于 45% 生效；设计:289、:295 写明 `estimatedTrigger` 是镜像估算，返回里标 `estimated: true`。
 
@@ -153,7 +153,7 @@
 |---|---|---|---|---|
 | 1 | 交接模板：`src/rollover.ts:71-270`（`buildHandoffCheckpoint` / `deriveHandoffContext` / `deriveNotesFreshness` / `deriveRecentActivity` / `handoffCheckpointWorstCaseText`） | 新建 `src/handoff/template.ts` | 措辞从 `ctx_notes/ctx_history` 改成 `team_notes/history_*`；`Task:` 不再取 `session/title`，改用 `team.json` 里的任务 id、标题和契约要点（B 的 hint 已经有这份数据，`src/prompt/hint.ts`）；新鲜度改用 `NotesStore` 的 `mtimeMs`（B `src/notes/store.ts:18,69`）对比事件时间 | 1 天 |
 | 2 | 脱敏：`src/redact.ts`（76 行）+ `tests/redact.test.ts` | 新建 `src/handoff/redact.ts` | 原样搬过来，测试从 vitest 改写成 node:test | 0.25 天 |
-| 3 | 零模型 summarize（A 的思路见 `src/rollover.ts:376-423`），**机制改成挂钩**，不再继承基类 | 新建 `src/handoff/hook.ts`，修改 `src/index.ts`、`src/budget/compact.ts` | 用 `serviceFor(agent,'compaction')` 拿到 preset 引擎后，把实例上的 `summarize` 包一层，**只对团队会话**返回模板，其他会话照常走原逻辑。`summarize()` 是 basic 公开的唯一定制钩子（basic `lib/index.js:796,893`），并通过 `this.summarize` 动态派发（`:1016`），所以实例级覆写会生效。钩子收到的 agent 就是 `compactRegion` 的调用方（`:971-972,478,587`）。团队判定用 `WeakSet<agent>`；笔记新鲜时返回模板，缺失或过期时调原方法（用户 2026-10-14 确认，见 `04-handoff-design.md`）。preset 引擎是共享的：包装要幂等（用 symbol 标记），dispose 时还原。开关形态在 07 里只是建议（`handoff: hybrid/template/llm`，默认 hybrid），需写进设计 §7-10。要保持「模板必须严格小于被隐藏内容」这条事务约束，参照 A 的 worst-case 定价 | 1–1.5 天 |
+| 3 | 零模型 summarize（A 的思路见 `src/rollover.ts:376-423`），**机制改成挂钩**，不再继承基类 | 新建 `src/handoff/hook.ts`，修改 `src/index.ts`、`src/budget/compact.ts` | 用 `serviceFor(agent,'compaction')` 拿到 preset 引擎后，把实例上的 `summarize` 包一层，**只对团队会话**返回模板，其他会话照常走原逻辑。`summarize()` 是 basic 公开的唯一定制钩子（basic `lib/index.js:796,893`），并通过 `this.summarize` 动态派发（`:1016`），所以实例级覆写会生效。钩子收到的 agent 就是 `compactRegion` 的调用方（`:971-972,478,587`）。团队判定用 `WeakSet<agent>`；笔记新鲜时返回模板，缺失或过期时调原方法（后续版本目标方案，v1 不拦截，见 `04-handoff-design.md`）。preset 引擎是共享的：包装要幂等（用 symbol 标记），dispose 时还原。开关形态在 07 里只是建议（`handoff: hybrid/template/llm`，默认 hybrid），需写进设计 §7-10。要保持「模板必须严格小于被隐藏内容」这条事务约束，参照 A 的 worst-case 定价 | 1–1.5 天 |
 | 4 | `new_context`：`src/new-context.ts` 加 `src/rollover.ts:442-490` 的「不被悄悄吞掉」语义 | 新建 `src/budget/new-context.ts` | 只对团队会话注册；在 B 的 pre-step 里消费请求，调 `compactIfNeeded(agent,'context-overflow')`；压缩没真正提交前请求一直保留 | 0.5 天 |
 | 5 | 运行状态文件：`src/index.ts:173-265` 的 `engine-state.json` 模式 | 新建 `src/ops/state.ts` | 记录压缩尝试 / 成功 / 失败原因、提示档位命中次数、取不到引擎的次数；**计数放在真正送达之后**（不要重犯 A1） | 0.5 天 |
 | 6 | 同时修 B 自身（只修 §4.2「仍待处理」里的条目）：B1 按设计:101 补全 `inject`，并把 `llm` 一并补进设计与代码；或者明确用可选依赖，拿不到时不标记窗口；B3 失败后按步数退避重试；B4 把「不是团队」的缓存改成按事件失效、TTL 拉长，同时更新设计:254 | `src/index.ts:38`、`src/budget/compact.ts`、`src/team/directory.ts` | — | 0.5 天 |
@@ -188,7 +188,7 @@
 
 | # | 初版说法 | 对应的设计决定 | 现状 |
 |---|---|---|---|
-| 1 | 45% 用 LLM 摘要、不保留原文，是「最大的问题」（B2） | §2.4 D1：overflow 分支只留最后一个节点及其配对，用户 2026-10-14 确认（设计:165-173、:410） | 已定。用户 2026-10-14 追加修订：笔记新鲜时改走模板，「原文不保留」不变，见 `04-handoff-design.md` |
+| 1 | 45% 用 LLM 摘要、不保留原文，是「最大的问题」（B2） | §2.4 D1：overflow 分支只留最后一个节点及其配对，用户 2026-10-14 确认（设计:165-173、:410） | 已定。后续版本目标：笔记新鲜时改走模板，「原文不保留」不变，见 `04-handoff-design.md` |
 | 2 | v1 不拦截摘要 | §7-10「v1 不拦截」（设计:412、:425-429） | 已定。04 给出对 §7-10 的修订建议 |
 | 3 | 「贵」：每次换窗多付一次摘要调用 | 设计:427 已写明输入大部分命中前缀缓存 | 更正：多出来的主要是输出 token 和等待时间（见 §1.6-B2） |
 | 4 | README 与 package.json 的宿主版本「三处矛盾」 | §0：0.2.1-alpha.2 是取证源码基线，运行宿主是 0.2.0-rc.2（设计:17、:21-24） | 不矛盾，只剩措辞建议（B10） |
