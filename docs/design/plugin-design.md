@@ -383,7 +383,7 @@ section / context 的 `text()` 对无团队会话返回空串；队长建团后�
 
 | # | 要证什么 | 观测 / 判据 | 依赖的推断 |
 |---|---|---|---|
-| PoC-1 | 宿主层插件按 §2.2 的 inject（含 `agentPresets`、`sessions`、`sessionPersistence`）能激活，不挂起 | `plugin_manager list_plugins` 显示 `dsh-token-budget` 已激活（`editing-cordis-compositions/SKILL.md:74`）；故意加入 `'compaction'` 的对照版应**不激活**。**注（2026-10-15）**：早先只验证过前 5 个服务，补齐后的 8 个需要重新验证 | §3.2 |
+| PoC-1 | 宿主层插件按 §2.2 的 inject（含 `agentPresets`、`sessions`、`sessionPersistence`）能激活，不挂起 | `plugin_manager list_plugins` 显示 `dsh-token-budget` 已激活（`editing-cordis-compositions/SKILL.md:74`）；故意加入 `'compaction'` 的对照版应**不激活**。**注（2026-10-15）**：早先只验证过前 5 个服务；8 个服务版（c70be72 构建）已在 dsh 0.2.0-rc.2 web（profile poc）上激活：重启后新会话的投影缓存出现本插件注册的 `tokenBudgetWindow`。`'compaction'` 对照版未做 | §3.2 |
 | PoC-2 | 宿主层注册的 section 与 context 出现在 **preset 会话**与**成员子会话**的请求里 | 解码会话日志：`system/message` 文本含 `dsh-token-budget:notes` 段；`source.kind='runtime-context'` 的 user 消息含预算段 | agent-teams usage section 同法工作（强推断） |
 | PoC-3 | 团队身份解析与 agent-teams 判定一致；成员在 `agent/created` 时是否已写入 `team.json` | 对每个成员/队长会话，本插件解析出的 `(teamId, agentKey)` 与 `agent_teams_status` 一致；队长 fork 后代按设计判为非团队；记录成员 `agent/created` 时刻 `team.json` 中是否已有其 `members[].id` | §4.0.1-5、§4.0.2 |
 | PoC-4 | 预算提示在跨档时出现、压缩后消失，且每窗口快照追加次数 ≤ 档数 + 1 | 低阈值下跑长任务：统计两次 `compaction/end` 之间 `runtime-context` user 消息条数 | §4.1 |
