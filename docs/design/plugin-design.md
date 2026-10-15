@@ -132,7 +132,7 @@ interface Config {
 }
 ```
 
-- **实现更正（2026-10-14）：配置改为扁平、全部即时字段。** DSH 设置表单只投影 `.volatile()` 字段（`settings/src/schema.ts` `volatileForm`），共享表单模型 `SettingsFormModel` 只按顶层字段读写（路径 `[field]`）。所以对外配置为一层：`remindAtRatio / compactAtRatio / bucketStep / contextTool / notesMerge / mergeProvider / mergeModel / mergeReasoningEffort / maxFileBytes / hintMaxBytes / hintRecentNotes / historyMaxResults / historyMaxReadChars / historyMaxListItems`，插件内部换算回上面的分组结构（`src/config.ts` `toSettings`）。保存后宿主经 volatile HMR 更新，数值与合并开关/模型即时生效；`notes / history / contextTool` 仍只在 apply 时决定是否注册，改后需重启 DSH。设置页由插件 client 入口注册到 `plugins.row.config`（键 `dsh-token-budget#dsh-token-budget`），模型为级联下拉，选项来自 `ctx.remote.session.modelCatalog()`。已在真实 DSH 0.2.0-rc.2 web 中验证：页面出现、下拉有选项、保存写入 profile 的 `cordis.patch.yml`。
+- **实现更正（2026-10-14）：配置改为扁平、全部即时字段。** DSH 设置表单只投影 `.volatile()` 字段（`settings/src/schema.ts` `volatileForm`），共享表单模型 `SettingsFormModel` 只按顶层字段读写（路径 `[field]`）。所以对外配置为一层：`remindAtRatio / compactAtRatio / bucketStep / contextTool / notesMerge / mergeProvider / mergeModel / mergeReasoningEffort / maxFileBytes / hintMaxBytes / hintRecentNotes / historyMaxResults / historyMaxReadChars / historyMaxListItems`，插件内部换算回上面的分组结构（`src/config.ts` `toSettings`）。保存后宿主经 volatile HMR 更新，数值与合并开关/模型即时生效；`notes / history / contextTool` 开关也即时生效（2026-10-15 改：volatile 更新时注册或注销对应工具与 section，见 PoC-7）。设置页由插件 client 入口注册到 `plugins.row.config`（键 `dsh-token-budget#dsh-token-budget`），模型为级联下拉，选项来自 `ctx.remote.session.modelCatalog()`。已在真实 DSH 0.2.0-rc.2 web 中验证：页面出现、下拉有选项、保存写入 profile 的 `cordis.patch.yml`。
 - **两个开关只决定「是否注册」**：注册发生在插件 `apply()` 时，一次性完成；运行中**不按团队状态增删工具或 section**。理由：工具声明变化会迫使新 request series、头部合并（`packages/core/agent-loop/src/agent.ts:416-421` `startsSeries: … || (preparedCall?.toolUpdate === undefined && this.toolsChanged(assembly.tools))`）。【源码】
 - 百分比的分母统一为路由容量 `W`（`contextPressure.contextWindow`），分子 `P` 与 compaction-basic 同源（`tokenMeter`）。compaction-basic 的 `thresholdRatio` 也是 `W` 的比例（`compaction-basic/README.md:62`），口径一致。
 - **`临时记录.md` §十四 的 0.5 测试覆盖目前仍在 profile 里**，PoC 前必须先回退或改成 0.45（见 §2.4）。【推断】
@@ -401,6 +401,7 @@ section / context 的 `text()` 对无团队会话返回空串；队长建团后�
 - 压缩后 `team_notes`、`history_*`（含 w99 报错）均正常。
 - 实测发现并修复：宿主每步**先组装**（context 的 `text()` 只在这里求值一次），**后跑** `agent/pre-step`。原先在 pre-step 压缩，导致压缩后第一步仍带压缩前的「已用 5%」提示和旧窗口 hint。现改为在 `system-prompt/assemble` 瀑布里压缩，并就地重算本插件的两段 context；`agent/pre-step` 保留为兜底（同窗口只尝试一次）。复测通过。
 - PoC-6 通过（代码级，用 agent-teams 0.1.23 真实的 `readArtifactScope`）：工作区范围 `./` 与 `src/` 下，写入 `.agent-teams/.context/notes/` 的成员笔记和 `workspace.md` 前后读取结果逐字节相同、无 gap；对照组在根目录写 `notes.md` 会被读到。`agent_teams_status` 的审计（`auditTeamWorkspace`）只由这个读取器和已记录路径的 mtime 组成，笔记路径不会进入任何契约（`isDefaultExcludedPath`），所以结论不变。前提是 `stateDir` 保持在 `.agent-teams` 下，否则插件启动时告警。
+- PoC-7 通过（改实现后）：原实现中三个能力开关只在 apply 时决定是否注册，改了要重启 DSH。现改为 volatile 更新时注册/注销。实测：同一个已打开的会话，设置页关掉团队笔记后，下一次请求的 `request/header` 少了 `team_notes`，宿主自动插入 `tool-removal` 开发者消息；重新打开后新请求里 `team_notes` 回来。
 - 已知：成员会话第 1 步组装时团队身份尚不可知（认领任务前），hint 从第 2 步开始出现，不影响功能。
 
 ---

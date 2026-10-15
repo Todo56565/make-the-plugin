@@ -54,12 +54,28 @@ export function apply(ctx: Context, raw: Config): void {
   const config = toSettings(raw)
   const logger = ctx.logger('dsh-token-budget')
   for (const problem of validateConfig(config)) logger.warn(problem)
-  // 设置页保存 ⇒ 宿主 volatile HMR，不重启插件：原地刷新数值配置。
-  // 能力开关（notes / history / contextTool）决定 apply 时是否注册工具与 section，需重启 DSH 后生效。
+  // 设置页保存 ⇒ 宿主 volatile HMR，不重启插件：原地刷新配置。
+  // 能力开关（notes / history / contextTool）也即时生效：按开关注册或注销对应工具与 section。
+  const switches: Array<() => void> = []
   ctx.on('loader/volatile-update', () => {
     refreshSettings(config, raw)
     for (const problem of validateConfig(config)) logger.warn(problem)
+    for (const sync of switches) sync()
   })
+  /** 注册一项可开关的能力：开关打开时注册、关闭时注销；返回值用于启动时同步一次。 */
+  const switchable = (label: string, enabled: () => boolean, register: () => () => void): void => {
+    let dispose: (() => void) | undefined
+    const sync = (): void => {
+      if (enabled() && dispose === undefined) {
+        dispose = ctx.effect(register, label)
+      } else if (!enabled() && dispose !== undefined) {
+        dispose()
+        dispose = undefined
+      }
+    }
+    switches.push(sync)
+    sync()
+  }
 
   const teams = new TeamDirectory(config.stateDir, message => logger.warn(message))
   const gate = new CompactionGate()
@@ -67,8 +83,8 @@ export function apply(ctx: Context, raw: Config): void {
   const hints = new WindowHintCache()
   /** 已告警过「取不到压缩引擎」的会话。 */
   const engineMissingWarned = new Set<string>()
-  /** history 读取源（开关 history 关闭时不创建）；会话结束时释放修订缓存。 */
-  const historySource = config.history ? new HistorySource(() => ctx.sessionPersistence) : undefined
+  /** history 读取源；会话结束时释放修订缓存。 */
+  const historySource = new HistorySource(() => ctx.sessionPersistence)
 
   // 窗口计数投影
   ctx.effect(() => registerWindowCounter(ctx), 'dsh-token-budget: window projection')
@@ -87,7 +103,7 @@ export function apply(ctx: Context, raw: Config): void {
     hints.forget(agent.id)
     engineMissingWarned.delete(agent.id)
     const sessionId = (agent as { session?: { id?: string } }).session?.id
-    if (sessionId !== undefined) historySource?.forget(sessionId)
+    if (sessionId !== undefined) historySource.forget(sessionId)
   })
 
   // ── token budget：提示（runtime context，缓存分支 B）──
@@ -140,52 +156,45 @@ export function apply(ctx: Context, raw: Config): void {
     text: windowHintText,
   }), 'dsh-token-budget: window hint')
 
-  // ── notes：工具 + 稳定指针 ──
-  if (config.notes) {
-    const storeFor = createStoreCache(() => config.notesOptions.maxFileBytes)
-    registerNotesMerge(ctx, config, storeFor, logger)
-    ctx.effect(() => registerTeamNotesTool(ctx, {
-      identityOf: agent => teams.identityOf(agent, true),
-      storeFor,
-      maxResults: config.historyOptions.maxResults,
-    }), 'dsh-token-budget: team_notes tool')
-    ctx.effect(() => ctx.systemPrompt.section({
-      name: 'dsh-token-budget:notes',
-      order: NOTES_SECTION_ORDER,
-      text: (assembly) => {
-        const agent = assembly.agent
-        if (agent === undefined) return ''
-        try {
-          return notesPointer.get(agent.id, () => {
-            const identity = teams.identityOf(agent)
-            return identity === undefined ? undefined : notesSectionText(identity)
-          })
-        } catch (error) {
-          logger.warn(`笔记指针生成失败：${String(error)}`)
-          return ''
-        }
-      },
-    }), 'dsh-token-budget: notes section')
-  }
+  // ── notes：工具 + 稳定指针（开关 notes，即时生效）──
+  const storeFor = createStoreCache(() => config.notesOptions.maxFileBytes)
+  registerNotesMerge(ctx, config, storeFor, logger)
+  switchable('dsh-token-budget: team_notes tool', () => config.notes, () => registerTeamNotesTool(ctx, {
+    identityOf: agent => teams.identityOf(agent, true),
+    storeFor,
+    maxResults: config.historyOptions.maxResults,
+  }))
+  switchable('dsh-token-budget: notes section', () => config.notes, () => ctx.systemPrompt.section({
+    name: 'dsh-token-budget:notes',
+    order: NOTES_SECTION_ORDER,
+    text: (assembly) => {
+      const agent = assembly.agent
+      if (agent === undefined) return ''
+      try {
+        return notesPointer.get(agent.id, () => {
+          const identity = teams.identityOf(agent)
+          return identity === undefined ? undefined : notesSectionText(identity)
+        })
+      } catch (error) {
+        logger.warn(`笔记指针生成失败：${String(error)}`)
+        return ''
+      }
+    },
+  }))
 
-  // ── history：只读历史工具（设计 §4.4）──
-  if (historySource !== undefined) {
-    const source = historySource
-    ctx.effect(() => registerHistoryTools(ctx, {
-      isTeamAgent: agent => teams.identityOf(agent, true) !== undefined,
-      load: (agent, signal) => source.load(agent.session.id, signal, () => ctx.sessions.flush(agent.session)),
-      limits: () => config.historyOptions,
-    }), 'dsh-token-budget: history tools')
-  }
+  // ── history：只读历史工具（设计 §4.4；开关 history，即时生效）──
+  switchable('dsh-token-budget: history tools', () => config.history, () => registerHistoryTools(ctx, {
+    isTeamAgent: agent => teams.identityOf(agent, true) !== undefined,
+    load: (agent, signal) => historySource.load(agent.session.id, signal, () => ctx.sessions.flush(agent.session)),
+    limits: () => config.historyOptions,
+  }))
 
-  // ── context_remaining 工具（设计 §4.1）──
-  if (config.budget.tool) {
-    ctx.effect(() => registerContextRemainingTool(ctx, {
-      isTeamAgent: agent => teams.identityOf(agent, true) !== undefined,
-      usage: agent => usageOf(ctx, agent.session),
-      compactAtRatio: () => config.budget.compactAtRatio,
-    }), 'dsh-token-budget: context_remaining tool')
-  }
+  // ── context_remaining 工具（设计 §4.1；开关 contextTool，即时生效）──
+  switchable('dsh-token-budget: context_remaining tool', () => config.budget.tool, () => registerContextRemainingTool(ctx, {
+    isTeamAgent: agent => teams.identityOf(agent, true) !== undefined,
+    usage: agent => usageOf(ctx, agent.session),
+    compactAtRatio: () => config.budget.compactAtRatio,
+  }))
 
   // ── token budget：45% 主动压缩（方案 D1）──
   /** 达到阈值时主动压缩；返回本次是否真的压缩了。 */
@@ -296,7 +305,7 @@ function registerNotesMerge(
   ctx.on('session/event', (session, event) => {
     if (!calls.handle(session.id, event.type, (event as { data?: unknown }).data)) return
     // 关闭时仍要更新快照，否则开启瞬间会把关闭期间完成的任务当成新完成
-    const enabled = config.notesMerge.enabled && config.notesMerge.model !== undefined
+    const enabled = config.notes && config.notesMerge.enabled && config.notesMerge.model !== undefined
     const stateRoot = stateRootOf(session.header.cwd, config.stateDir)
     let teams
     try {
