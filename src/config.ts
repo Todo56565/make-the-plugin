@@ -177,5 +177,8 @@ export function validateConfig(config: Settings): string[] {
   if (config.notesMerge.enabled && (config.notesMerge.provider === undefined || config.notesMerge.model === undefined)) {
     problems.push('notesMerge 已开启，但未选择模型；自动合并不会运行')
   }
+  if (config.notes && config.stateDir.split(/[\\/]/).filter(Boolean)[0] !== '.agent-teams') {
+    problems.push(`stateDir（${config.stateDir}）不在 .agent-teams 下：agent-teams 质量闸门只默认排除 .agent-teams/，笔记文件可能被计入交付审计`)
+  }
   return problems
 }

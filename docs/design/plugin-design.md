@@ -400,6 +400,7 @@ section / context 的 `text()` 对无团队会话返回空串；队长建团后�
 - PoC-9 通过：设 5% 时 `compaction/start` 前一步约 4.9%–6.0%，压缩后约 2.3%–3.0%。
 - 压缩后 `team_notes`、`history_*`（含 w99 报错）均正常。
 - 实测发现并修复：宿主每步**先组装**（context 的 `text()` 只在这里求值一次），**后跑** `agent/pre-step`。原先在 pre-step 压缩，导致压缩后第一步仍带压缩前的「已用 5%」提示和旧窗口 hint。现改为在 `system-prompt/assemble` 瀑布里压缩，并就地重算本插件的两段 context；`agent/pre-step` 保留为兜底（同窗口只尝试一次）。复测通过。
+- PoC-6 通过（代码级，用 agent-teams 0.1.23 真实的 `readArtifactScope`）：工作区范围 `./` 与 `src/` 下，写入 `.agent-teams/.context/notes/` 的成员笔记和 `workspace.md` 前后读取结果逐字节相同、无 gap；对照组在根目录写 `notes.md` 会被读到。`agent_teams_status` 的审计（`auditTeamWorkspace`）只由这个读取器和已记录路径的 mtime 组成，笔记路径不会进入任何契约（`isDefaultExcludedPath`），所以结论不变。前提是 `stateDir` 保持在 `.agent-teams` 下，否则插件启动时告警。
 - 已知：成员会话第 1 步组装时团队身份尚不可知（认领任务前），hint 从第 2 步开始出现，不影响功能。
 
 ---
