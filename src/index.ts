@@ -102,6 +102,7 @@ export function apply(ctx: Context, raw: Config): void {
     if (returned || isTeamEvent(event.type)) teams.invalidate()
   })
   ctx.on('agent/disposed', ({ agent }) => {
+    pocLog({ ev: 'agent-disposed', agent: agent.id })
     teams.forget(agent.id)
     gate.forget(agent.id)
     notesPointer.forget(agent.id)
@@ -305,6 +306,17 @@ export function apply(ctx: Context, raw: Config): void {
       fallback: poc.fallback.has(agent.id), visible: visibleTools(ctx, agent),
       headerTools: agent.session.requestHeader()?.tools?.map(tool => tool.name).sort(),
     })
+    // PoC：兜底期间检查我们的 restrict 是否还在（成员换 Agent 实例后会丢），丢了就记录并重新施加
+    const current = poc.fallback.get(agent.id)
+    if (current !== undefined && identity.role === 'member') {
+      const visible = visibleTools(ctx, agent)
+      const own = ownLayerTools(ctx, agent)
+      const extra = Array.isArray(visible) && Array.isArray(own) ? visible.filter(name => !options.fallbackAllow.includes(name) && !own.includes(name)) : []
+      if (extra.length > 0) {
+        pocLog({ ev: 'restrict-lost', agent: agent.id, extra })
+        try { current.revoke = agent.ctx.tools.restrict({ allow: options.fallbackAllow }) ; pocLog({ ev: 'restrict-reapplied', agent: agent.id, visible: visibleTools(ctx, agent) }) } catch (error) { pocLog({ ev: 'restrict-error', agent: agent.id, error: String(error) }) }
+      }
+    }
     if (poc.newWindow.get(agent.id) === window.index) return compactNow(agent, signal, 'context_new_window')
     if (!options.pluginCompaction) return false
     if (identity.role === 'captain' && options.captainSkip) return false
