@@ -2,6 +2,8 @@
 
 本文件是补丁插件的**唯一权威规格**。`临时记录.md` 保留讨论结论与取证细节，`docs/research/context-compare/` 保留两轮比对报告；三者冲突时以本文件为准，并应回头修正另外两处。
 
+**当前版本：0.1.0（v1 基线，2026-10-16 定）**，后续版本在此基础上推进。
+
 **只写当前结论**。证据分级沿用仓库口径：
 
 - **【源码】**：逐字可复核（`路径:行号` + token 锚点）
@@ -35,13 +37,13 @@
 - 形态 = **另一个 dsh 插件**：同一功能两个插件，一个社区原版 agent-teams、一个本补丁包；原插件升级不会覆盖本补丁
 - **不修改** agent-teams 源码，也不修改 DSH 任何包
 - 以宿主层 Loader 行按 id 装载：**装上即有、卸下即无**；不装 = 原版社区 teams。整体启停由 DSH **插件管理面板**直接管理
-- tokenBudget 是本插件的本体（插件启用即生效）；插件内只保留**两个开关**：`notes` / `history`，**默认全开**（用户 2026-10-14 决定）
+- tokenBudget 是本插件的本体（插件启用即生效）；插件内的能力开关为 `notes` / `history`（用户 2026-10-14 决定）与实现时加的 `contextTool`（`context_remaining` 工具），**默认全开**，在设置页切换即时生效
 - **只管团队会话**（用户 2026-10-14 决定），非团队会话一律不注入、工具返回说明性错误
 - **命名统一为 `dsh-token-budget`**（包名、plugin id、section 名前缀、文档内一切隐式与显式引用；用户 2026-10-14 决定）
 
 ### 1.2 硬边界（已确认的用户决定，沿用 `临时记录.md` §二）
 
-- **history 作用域不超过当前团队**：只读当前 `team.json` + 当前团队 `inbox/*.jsonl`；不碰 `archive/`，不跨实例
+- **history 只读调用者自己的会话**（§4.4），成员不读队长继承来的上下文；团队级历史（`team.json` + 信箱，§4.3）属后续版本，届时作用域同样不超过当前团队：不碰 `archive/`，不跨实例
 - **主会话不查看子会话预算**：只保证子会话静默压缩后仍能干活
 - **笔记按工作区/团队存**（跨会话）；**窗口编号按 session 存**（不跨聊天界面）；两者键不同
 - **检索语义 = 区分大小写的字面包含**，不引入向量检索（Codex 两套检索同为 `.contains()`：`codex-rs/ext/memories/src/local/search.rs:288`、`codex-rs/ext/history-notes/src/tools.rs:181`）【源码】
@@ -68,13 +70,21 @@
 - insert:
     - id: dsh-token-budget
       name: 'dsh-token-budget'
-      config:
+      config:                       # 扁平结构，全部为即时字段（见 §2.2 实现更正）
         stateDir: .agent-teams      # 必须与 agent-teams 行的 stateDir 一致
         notes: true
         history: true
-        budget:
-          remindAtRatio: 0.37       # 上下文已用 37% 起提示
-          compactAtRatio: 0.45      # 已用 45% 强制换窗压缩（落点见 §2.4）
+        remindAtRatio: 0.37         # 上下文已用 37% 起提示
+        compactAtRatio: 0.45        # 已用 45% 强制换窗压缩（落点见 §2.4）
+        bucketStep: 0.03
+        contextTool: true
+        notesMerge: false
+        maxFileBytes: 10000
+        hintMaxBytes: 4000
+        hintRecentNotes: 5
+        historyMaxResults: 200
+        historyMaxReadChars: 20000
+        historyMaxListItems: 2000
 ```
 
 Loader 语义（`packages/preset/agent-preset/skills/cordis-composition-reference/SKILL.md:14-21`）：
@@ -89,7 +99,7 @@ Loader 语义（`packages/preset/agent-preset/skills/cordis-composition-referenc
 |---|---|
 | 安装 | `dsh plugin add`（bundle 层插入 `dsh-token-budget` 行） |
 | 整体启停（保留安装） | DSH 插件管理面板（等价于 profile `cordis.patch.yml` 写 `- id: dsh-token-budget` + `disabled: true`） |
-| 单项开关 | profile 里按 id 覆盖该行，**必须重述完整 `config`**（含 `stateDir`、两个开关与 `budget`），否则未写的键回到默认 |
+| 单项开关与数值 | DSH 插件管理面板 → 本行设置页，保存即时生效（宿主写入 profile 的 `cordis.patch.yml`，只写非默认值）。手写 profile 覆盖时注意 `config` 整体替换、不深合并，未写的键回到默认 |
 | 卸载 | `dsh plugin remove`（或删除 bundle）【推断：命令名未在本次源码取证中核对】 |
 
 **位置只能是宿主层**：本插件不能插进 preset 内部——preset 的插件列表是 `@deepseek-ai/dsh-agent-preset` 行 `config.plugins` 里的值，不是 Loader 的 `group: true` 行；要改它只能整份重述 preset 声明（`editing-cordis-compositions/SKILL.md:54-66`），这正是 `临时记录.md` §14.1 降阈值实验踩到的坑【运行态】。宿主层也是 agent-teams 自己的位置（`dsh-agent-teams/src/index.ts:14-17`「mounts this plugin row into the host composition … so the plugin needs no realm」）。
@@ -133,9 +143,9 @@ interface Config {
 ```
 
 - **实现更正（2026-10-14）：配置改为扁平、全部即时字段。** DSH 设置表单只投影 `.volatile()` 字段（`settings/src/schema.ts` `volatileForm`），共享表单模型 `SettingsFormModel` 只按顶层字段读写（路径 `[field]`）。所以对外配置为一层：`remindAtRatio / compactAtRatio / bucketStep / contextTool / notesMerge / mergeProvider / mergeModel / mergeReasoningEffort / maxFileBytes / hintMaxBytes / hintRecentNotes / historyMaxResults / historyMaxReadChars / historyMaxListItems`，插件内部换算回上面的分组结构（`src/config.ts` `toSettings`）。保存后宿主经 volatile HMR 更新，数值与合并开关/模型即时生效；`notes / history / contextTool` 开关也即时生效（2026-10-15 改：volatile 更新时注册或注销对应工具与 section，见 PoC-7）。设置页由插件 client 入口注册到 `plugins.row.config`（键 `dsh-token-budget#dsh-token-budget`），模型为级联下拉，选项来自 `ctx.remote.session.modelCatalog()`。已在真实 DSH 0.2.0-rc.2 web 中验证：页面出现、下拉有选项、保存写入 profile 的 `cordis.patch.yml`。
-- **两个开关只决定「是否注册」**：注册发生在插件 `apply()` 时，一次性完成；运行中**不按团队状态增删工具或 section**。理由：工具声明变化会迫使新 request series、头部合并（`packages/core/agent-loop/src/agent.ts:416-421` `startsSeries: … || (preparedCall?.toolUpdate === undefined && this.toolsChanged(assembly.tools))`）。【源码】
+- **开关只决定「是否注册」**：启动时按开关注册，设置页保存（volatile 更新）时注册或注销对应工具与 section（PoC-7）；运行中**不按团队状态增删工具或 section**。理由：工具声明变化会迫使新 request series、头部合并（`packages/core/agent-loop/src/agent.ts:416-421` `startsSeries: … || (preparedCall?.toolUpdate === undefined && this.toolsChanged(assembly.tools))`）。【源码】
 - 百分比的分母统一为路由容量 `W`（`contextPressure.contextWindow`），分子 `P` 与 compaction-basic 同源（`tokenMeter`）。compaction-basic 的 `thresholdRatio` 也是 `W` 的比例（`compaction-basic/README.md:62`），口径一致。
-- **`临时记录.md` §十四 的 0.5 测试覆盖目前仍在 profile 里**，PoC 前必须先回退或改成 0.45（见 §2.4）。【推断】
+- D1 下宿主 compaction-basic 的 `thresholdRatio` 保持默认（约 80%）作兜底，`临时记录.md` §十四 的 0.5 测试覆盖已回退。
 
 ### 2.4 「已用 45% 强制换窗压缩」的落点【源码 + 推断】
 
@@ -180,7 +190,7 @@ interface Config {
 ### 2.3 生效与热重载
 
 - profile 配置默认热重载（`packages/bundle/base/cordis.patch.yml:28-32` `- id: hmr` 注释「Profile configuration reloads by default」）【源码】
-- 但「已存在的会话及其子会话保留启动时的插件修订」（`editing-cordis-compositions/SKILL.md:74`）。§14.5 实测「阈值改动热生效」是**运行期配置**，与「插件修订」可能不是一回事（`临时记录.md` §14.9.3 未证死）⇒ **开关切换对已存在会话是否生效，列为 PoC-7**。【推断】
+- 「已存在的会话及其子会话保留启动时的插件修订」（`editing-cordis-compositions/SKILL.md:74`）指插件修订；本插件配置全部是即时字段，经 volatile 更新到达同一修订。PoC-7 实测：已打开的会话在设置页切换开关后，下一次请求的工具列表即变化。【运行态】
 
 ---
 
@@ -200,7 +210,7 @@ interface Config {
 | `ctx.on('session/event', (session, event) => …)` | `packages/core/session/src/index.ts:74`；compaction-basic 同款监听 `compaction-basic/src/index.ts:184` | 观察 `compaction/end`、`agent-teams/*` 事件 |
 | `ctx.on('agent/created', …)` | `runtime-types.ts:261`；agent-teams 兼容封装 `dsh-agent-teams/src/harness-compat.ts:110-121` `onAgentReady` | 首次请求前确定会话角色 |
 | `ctx.tools.register(defineTool({...}))` | agent-teams 范例 `dsh-agent-teams/src/tools.ts:923`（`import { defineTool } from '@deepseek-ai/dsh-tools'` `:17`）；工具执行上下文 `exec.agent`（`tools.ts:161-166`） | notes / history / context_remaining 工具 |
-| `agent.ctx.tools.restrict({deny})` | agent-teams 范例 `dsh-agent-teams/src/capabilities.ts:93-95` | v1 **不用**（团队身份在首次请求前可能不可知，见 §4.0.2）；留作 PoC-3 之后的收紧手段 |
+| `agent.ctx.tools.restrict({deny})` | agent-teams 范例 `dsh-agent-teams/src/capabilities.ts:93-95` | **不用**：成员创建时还不在 `team.json` 中（PoC-3），首次请求前无法判定身份，见 §4.0.2 |
 
 ### 3.2 不可用 / 不该用
 
@@ -263,17 +273,18 @@ agent-teams 没有公共 API，本插件**按其磁盘格式自行解析**（只
 - 队长通常是**先普通对话、后来才建团队**的顶层会话；
 - 成员在 `agent/created` 时未必已写进 `team.json`——agent-teams 自己靠进程内的 `isPendingMember(agent)` 补这个时间差（`capabilities.ts:68`，来自 `registerAgentTeamsTools` 的运行时状态，`index.ts:96-100`），本插件拿不到这个内部状态。
 
-因此 **v1 不做 `restrict`**：本插件工具在所有会话可见，无团队时调用返回「当前会话不属于任何 AgentTeams 团队」。代价是非团队会话的工具目录多 2–3 个 schema（`scope: 'all'` 时 `context_remaining` 本就该全局可见）。PoC-3 若证实成员在 `agent/created` 时已在 `team.json` 中，可再对「非成员子代理」启用 `restrict`。
+因此 **v1 不做 `restrict`**：本插件工具在所有会话可见，无团队时调用返回「当前会话不属于任何 AgentTeams 团队」。代价是非团队会话的工具目录多出本插件的 6 个工具 schema（`team_notes`、`context_remaining`、4 个 `history_*`）。PoC-3 已证实成员在 `agent/created` 时**不在** `team.json` 中（agent-teams 在 `startContinuable` 返回后才写 `member.id`，`members.ts:942`），所以维持不做 `restrict`；将来要收紧，需另找身份时序（见后续版本）。
 
 section / context 的 `text()` 对无团队会话返回空串；队长建团后文本变化**一次**（一次 head 改写或一次快照追加），属可接受代价，计入 §7-1 两个分支的成本。
 
 #### 4.0.3 窗口计数
 
-- 注册会话投影 `agentTeamsContextWindow`：`init` = 0，`apply` 遇到 `compaction/end` 且无 `error` 字段时 +1（事件形状 `compaction/src/types.ts:72` `{ compactionId, sourceCommandId?, turn, error? }`）
+- 注册会话投影 `tokenBudgetWindow`（`src/window/counter.ts`）：`init` = 0，`apply` 遇到 `compaction/end` 且无 `error` 字段时 +1（事件形状 `compaction/src/types.ts:72` `{ compactionId, sourceCommandId?, turn, error? }`）
 - 键 = 会话（投影天然按 session 隔离）⇒ 满足「窗口编号按 session 存」
 - 手动 `/compact` 与自动压缩都计（两者同为 `compaction/start…end`，区别仅 `sourceCommandId`）
 - fork 子会话的日志开头含祖先的压缩事件逐字副本（`packages/core/session/src/fork.ts:21-30` `events.slice(0, boundary + 1)`）⇒ 投影重放会把它们算进去。是否扣除继承部分见 §7-9
 - v1 **不向模型展示窗口编号**（沿用 `临时记录.md` §八 6.1 的 v1 决定），只作为 notes hint 的刷新闸门；最终版是否展示、放哪条通道见 §7-1
+- **口径差（已知）**：history 工具的窗口编号（§4.4）另按 `compaction/summary` 计数，且成员跳过继承前缀；本投影按成功的 `compaction/end` 计数且含 fork 继承部分。两者目前互不依赖；将来若向模型展示窗口编号，应统一到 history 的口径
 
 ### 4.1 tokenBudget
 
@@ -290,7 +301,7 @@ section / context 的 `text()` 对无团队会话返回空串；队长建团后�
 | 工具 | `budget.tool = true` 时注册 `context_remaining`：只读调用者自身会话（`exec.agent.session`），返回 `{pressure, contextWindow, estimatedTrigger, remaining, estimated: true}`；**不能指定其他会话**（与 Codex `get_context_remaining` 一致，`codex-rs/core/src/tools/handlers/get_context_remaining.rs:85-93`）。**实现**（`src/budget/tool.ts`）：无参数，仅团队会话；`estimatedTrigger = floor(W × compactAtRatio)`，`remaining = max(0, T − P)`；返回给模型的是一句中文文本（已用 P/W、约 x%、预计压缩点、剩余约 n token（估算值）），容量未知时说明原因 |
 | 存储键 | 无持久状态（全部由 token-meter 与投影即时算出） |
 | 作用域 | 单个 session；只对能解析出团队身份的会话生效（用户决定，无 `scope` 配置） |
-| 与压缩交互 | 压缩后 `P` 骤降 ⇒ 文本回到空串 ⇒ 追加一份「不含预算段」的快照（每窗口一次）；本插件**不触发、不阻止、不改动**压缩 |
+| 与压缩交互 | 达到 `compactAtRatio` 时由本插件触发压缩（方案 D1，§2.4；在 `system-prompt/assemble` 瀑布里执行并就地重算本插件的 context）；压缩后 `P` 骤降 ⇒ 文本回到空串 ⇒ 追加一份「不含预算段」的快照（每窗口一次）。本插件不阻止、不改动压缩内容 |
 | 失败回退 | `W` 缺失（路由未声明容量）或 `measure` 抛错 ⇒ 空串；工具返回 `remaining: null` 与原因 |
 
 **口径声明**：token-meter 文档明说这些数值是「user-facing reference, not a billing or gating input」（`token-meter/src/projection.ts:25-28`）。t6 曾以「插件自算会与宿主双口径」为由不建议照搬（`docs/research/context-compare/t6-improvement-plan.md` §3 第 4 行）——本设计直接读宿主同一个 `tokenMeter`，`P` 与 compaction-basic 同源，**只有 `T` 是镜像估算**，这是唯一的口径差，已在工具返回里标 `estimated: true`。【源码 + 推断】
@@ -323,7 +334,7 @@ section / context 的 `text()` 对无团队会话返回空串；队长建团后�
 | 上限 | 单文件 `> maxFileBytes`（默认 10,000 B，照 Codex `memory_summary.md` `< 10_000` 硬校验，`codex-rs/memories/write/src/workspace.rs:120`）⇒ **拒绝写入**并提示精简，不静默截断 |
 | 并发 | 同一文件的 write/append 在进程内串行；跨进程「最后写入赢」（`临时记录.md` §八 6.2 已接受）。DSH `edit/write` 的 `FS_STALE_VERSION` 守卫不覆盖本插件工具【推断】 |
 | 指针注入（稳定） | `systemPrompt.section({ name: 'dsh-token-budget:notes', order: 620 })`（紧随 `TEAM_POLICY 600`，`system-prompt/src/index.ts:135`）：渲染「你的笔记文件 `teams/<teamId>/<agentKey>.md`；共享笔记 `workspace.md`；用 team_notes 读写」。文本只依赖 `(teamId, agentKey)`，**每会话首次渲染后不再变** ⇒ 零事件 |
-| hint（窗口级） | 「最近改动的笔记文件 ≤5 个 + 行数/字节数」，形态照 Codex 夹具 `"Recent notes (up to 5, most-recent first):\n- … (2 lines, 14 UTF-8 bytes)"`（`codex-rs/ext/history-notes/tests/history_notes_extension.rs:48`）。**只在窗口计数变化时重算**（照 Codex hint 只在重建初始上下文时取一次，`临时记录.md` §10.8.3），超过 `hintMaxBytes` ⇒ **整条不注入**（照 Codex `text.len() > MAX_THREAD_HINT_BYTES` 判失败，`extension.rs:140-143`）。注入通道见 §7-1 |
+| hint（窗口级） | `systemPrompt.context({ name: 'dsh-token-budget:hint', order: 140 })`，内容 = 当前任务 id 与标题（缓存的 `team.json`，§7-4）+ 笔记元数据（自己的文件 + 队友最近 ≤ `hintRecentNotes` 个，带行数/字节数）+（`history` 开启时）一句可用 `history_*` 查原文；笔记部分形态照 Codex 夹具 `"Recent notes (up to 5, most-recent first):\n- … (2 lines, 14 UTF-8 bytes)"`（`codex-rs/ext/history-notes/tests/history_notes_extension.rs:48`）。**只在窗口计数变化时重算**（照 Codex hint 只在重建初始上下文时取一次，`临时记录.md` §10.8.3），超过 `hintMaxBytes` ⇒ **整条不注入**（照 Codex `text.len() > MAX_THREAD_HINT_BYTES` 判失败，`extension.rs:140-143`）。注入通道见 §7-1 |
 | 不抄契约 | 契约以 `team.json` 为准，不复制进笔记（`临时记录.md` §八 6.2） |
 | 作用域 | 读：同团队所有成员文件 + `workspace.md`（Codex 也允许跨 agent 读，`tools.rs:28`）；写：仅自己的文件 + `workspace.md` |
 | 与压缩交互 | 笔记在磁盘，压缩不碰；指针在 system 头，压缩不碰；hint 在压缩后的下一次准入重算 |
@@ -331,7 +342,10 @@ section / context 的 `text()` 对无团队会话返回空串；队长建团后�
 
 **参照对象要分清**：Codex `notes.*` 是**单 rollout 内**跨窗口私有笔记（`tools.rs:28`「survive context-window transitions within this rollout」）；**跨会话**的是另一套 `memories`。本设计的分层借 memories（每实体一份 + 合并层 + 双重硬上限），注入形态借 notes hint（只给指针）。合并层 `workspace.md` 的**自动合并**（Codex phase2 consolidation）**v1 不做**，由模型显式维护；是否做见 §7-3。
 
-### 4.3 history
+### 4.3 团队级历史 team_history（后续版本，v1 不做）
+
+> **状态（用户 2026-10-16）**：v1（0.1.0）不实现，移到后续版本。v1 的 `history` 开关只管 §4.4 的本会话窗口原文。下表为最初草案，实现前需重新讨论（与 `agent_teams_status`、信箱投递、§4.4 的重叠部分待定）。
+
 
 | 项 | 设计 |
 |---|---|
@@ -359,18 +373,18 @@ section / context 的 `text()` 对无团队会话返回空串；队长建团后�
 | 成员边界 | 成员会话只读 `inheritedEventCount` 之后的事件，不能读到队长继承过来的上下文 |
 | 代价 | 每次读要先 flush，且整份会话文件解码一次（按文件修订缓存，`jsonl/index.ts:753-786`） |
 | 降低解码成本（实验） | 会话文件是 **zstd 压缩，不是加密**。DSH 官方提供开关：`session-persistence-jsonl` 行的 `compression: 'zstd' \| 'none'`（`session-persistence-jsonl/src/index.ts:84-87`、`:254`；README 配置表 `compression` 行），设 `none` 后为纯文本 JSONL，省掉解压，但读取仍是整文件扫描 + JSON 解析。该行在宿主 base 层（`bundle/base/cordis.patch.yml:132-135`），覆盖时须重述 `root: !!js dshHomePath('sessions')`；作用于全部会话，已有 zstd 文件切换后的迁移行为需 PoC【推断】。因属全局存储配置，**不放进本插件 bundle**，作为文档里的可选 profile 片段由用户自行开启；插件代码两种格式都经 persistence 读取，无需改动 |
-| 待 PoC | web bundle 下宿主层模型工具在成员 preset 会话中是否可见（Contexera 记录称该 bundle 关闭宿主层模型工具；但 agent-teams 自身工具即为宿主层注册）；0.2.1-alpha.2 上 persistence 只读实测 |
+| 已验证 | 宿主层注册的本插件工具在成员会话中可见、可用（PoC-3、PoC-8）。0.2.1-alpha.2 上未测：agent-teams 0.1.23 不支持该宿主（§0-2） |
 
 **实现（ba7a385 起）**：`src/history/{model,source,tools}.ts`。工具名用下划线（宿主要求标识符）：`history_list_windows` / `history_list_items` / `history_read_item` / `history_search_contents`，参数照 Codex（window_id、item_id、role、tool_name、recent_first、offset_chars/limit_chars），只读调用方自己的会话、仅团队会话。窗口 id `w<N>`，条目 id `e<seq>`；条目只收 user/assistant/tool/system/developer 消息，推理块不收录，工具调用写成 `[调用 name(args)]`，tool 结果按 callId 回填工具名；被 `compaction/summary.shadowedSeqs` 覆盖的条目标「已隐藏」。上限取 `historyMaxResults` / `historyMaxReadChars` / `historyMaxListItems`（即时生效）。
 
-**persistence 只读 PoC（dsh 0.2.0-rc.2 真实 `session-persistence-jsonl`，zstd）**：写句柄持有写锁且未 flush 时，`persistence.flush()` 后 `stat` + `open(id,'read')` 能读到全部已 append 事件；再 append 后修订变化、缓存失效并读到新事件；读句柄与写锁并存无冲突。成员 preset 会话中宿主层工具可见性仍待在完整团队会话中实测（需模型 API key）。
+**persistence 只读 PoC（dsh 0.2.0-rc.2 真实 `session-persistence-jsonl`，zstd）**：写句柄持有写锁且未 flush 时，`persistence.flush()` 后 `stat` + `open(id,'read')` 能读到全部已 append 事件；再 append 后修订变化、缓存失效并读到新事件；读句柄与写锁并存无冲突。完整团队会话中成员调用 `history_*` 已通过（2026-10-15 压缩 PoC）。
 
 ---
 
 ## 5. 与 dsh-agent-teams 的耦合面与风险
 
-1. **磁盘格式耦合**：本插件依赖 `team.json` 的 `captainSessionId / members[].id / members[].name / tasks[]` 与信箱 JSONL 行格式（`types.ts:263-266`、`:310-333`、`:354-368`）。agent-teams 升级可能改格式 ⇒ `peerDependencies` **精确钉** `@nanmicoder/dsh-agent-teams@0.1.23`，升级时重跑 PoC-3/PoC-5。【源码】
-2. **成员工具策略**：部署方可给成员配 `allow` 型 `toolPolicies`，只保留列出的全局工具（`tool-policies.ts:17-24`、`:54-57`）⇒ 未列入的 `team_notes` / `team_history` / `context_remaining` 会被裁掉。文档必须提示：用 `allow` 策略时把这三个名字加进去。【源码】
+1. **磁盘格式耦合**：本插件依赖 `team.json` 的 `captainSessionId / members[].id / members[].name / tasks[]`（`types.ts:263-266`、`:354-368`；信箱 JSONL 行格式 `:310-333` 只在后续版本的 §4.3 用到）。agent-teams 升级可能改格式 ⇒ `peerDependencies` **精确钉** `@nanmicoder/dsh-agent-teams@0.1.23`（已写入 `package.json`），升级时重跑 PoC-3/PoC-5。【源码】
+2. **成员工具策略**：部署方可给成员配 `allow` 型 `toolPolicies`，只保留列出的全局工具（`tool-policies.ts:17-24`、`:54-57`）⇒ 未列入的 `team_notes` / `context_remaining` / 4 个 `history_*` 会被裁掉（agent-teams 只自动补它自己的 4 个协调工具）。README「使用」节已给出示例：用 `allow` 策略时把这些名字加进去。【源码】
 3. **成员工具过滤的时机**：agent-teams 在成员首次请求前用 `restrict` 固定工具集，并强调「Team creation/archive must never rewrite the captain's system/tools prefix」（`capabilities.ts:65-67`、`:93-95`）。本插件若日后启用 `restrict`，也必须在 `agent/created` 时一次定案，不得事后增删。【源码】
 4. **前缀稳定是上游的显式设计价值**（事实陈述，不作裁决）：agent-teams 把队长 prompt 一次性快照（`capabilities.ts:57-59`）；宿主 plan-mode 文案写明「The tool catalog stays the same across modes for request-cache stability」（`presets/standard.patch.yml:59`）；压缩摘要请求刻意复用前缀以命中 KV cache（`compaction-basic/src/summarizer.ts:28-31`）。这些是 §7-1 两个分支的背景事实。【源码】
 5. **宿主版本**：agent-teams 0.1.23 不声明支持 `0.2.1-alpha.2`（§0-2）。本插件 PoC 必须在 agent-teams 支持的宿主（推荐 `0.2.0-rc.2`，即本机安装版）上做。【源码】
@@ -390,7 +404,7 @@ section / context 的 `text()` 对无团队会话返回空串；队长建团后�
 | PoC-5 | 运行时上下文被压缩替换后自动补回（本插件依赖的核心机制） | 压缩后的第一条请求前出现新的 `runtime-context` 快照，且其 seq 晚于 checkpoint 的 replace 事件 | §3.3-B（源码已读通，缺运行态） |
 | PoC-6 | 笔记写入不影响交付审计 | 某任务通过质量闸门后，成员调用 `team_notes write`；再跑 `agent_teams_status`，审计结论不变 | §4.2.1 |
 | PoC-7 | 开关切换对已存在会话是否生效 | 改 profile 覆盖关掉 `notes`，看**已存在**会话的下一次请求工具列表是否变化；新会话对照 | §2.3 |
-| PoC-8 | 子会话在压缩后是否真的去用 notes / history（行为，不是能力） | 统计压缩后 N 步内 `team_notes read` / `team_history` 调用；对照组关闭预算提示 | `临时记录.md` §九-2、§十三-5 |
+| PoC-8 | 子会话在压缩后是否真的去用 notes / history（行为，不是能力） | 统计压缩后 N 步内 `team_notes read` / `history_*` 调用；对照组关闭预算提示 | `临时记录.md` §九-2、§十三-5 |
 | PoC-9 | `compactAtRatio` 与实际压缩点一致 | 记录 `compaction/start` 前一步的 `P / W`；理想值接近 0.45（小窗口路由上可能更早，见 §2.4） | §2.4 |
 
 **实测记录（2026-10-15，dsh 0.2.0-rc.2 web，profile poc，测试阈值 remind 0.03 / compact 0.05 / step 0.01，成员 carol）**
@@ -404,6 +418,8 @@ section / context 的 `text()` 对无团队会话返回空串；队长建团后�
 - PoC-7 通过（改实现后）：原实现中三个能力开关只在 apply 时决定是否注册，改了要重启 DSH。现改为 volatile 更新时注册/注销。实测：同一个已打开的会话，设置页关掉团队笔记后，下一次请求的 `request/header` 少了 `team_notes`，宿主自动插入 `tool-removal` 开发者消息；重新打开后新请求里 `team_notes` 回来。
 - PoC-8 通过（2026-10-15，团队 poc8-test，成员 dave，阈值 3%/5%）：任务只要求分 7 段读 3714 行文件、最后给出每段首行与 function 次数表，没有任何关于笔记、历史或压缩的指令。dave 在收到【上下文预算】提示后主动用 team_notes 写入已统计数据，并注明“压缩后以此为准”；第 4 段读完时触发压缩，之后继续追加进度并完成，7 段数据全部正确（31/18/19/14/15/0/6）。压缩后没有调用 team_notes read 或 history 工具：所需数据已在压缩摘要和笔记里。结论：预算提示足以让成员主动写笔记；history 是兜底，正常任务里不一定用到。
 - PoC-3 通过（2026-10-16，团队 poc3-test：队长 + alice + bob，另由队长 `subagent_fork` 派出一个分叉会话）：本插件解析的身份与 `agent_teams_status` 一致：队长 `teams/poc3-test/captain.md`，alice、bob 各自 `teams/poc3-test/<name>.md`，会话 id 与 team.json `members[].id`、`captainSessionId` 相符；成员 `context_remaining` 返回 1.4% / 预计 450000 token 压缩（W=1M × 0.45），与默认阈值一致。队长的 fork 后代调用 `team_notes` 得到「当前会话不属于任何 AgentTeams 团队」，符合 v1 设计（agent-teams 自己会把它认作队长，见 §4.0.1-5；识别 fork 后代留给后续版本）。成员在 `agent/created` 时**还不在** team.json 里：agent-teams 先 `subagents.startContinuable` 创建子会话，返回后才写 `member.id = start.childId`（`members.ts:942`），所以创建时不能用 `restrict` 收紧，§4.0.2 维持「不做 restrict」；成员 hint 从认领任务后的第 2 步起出现。
+- PoC-2 未单独记录，已被间接覆盖：PoC-4/5 观测到成员会话的 runtime-context 快照含预算段，PoC-8 中成员按 notes section 指引写入自己的笔记文件。
+- PoC-1 的 `'compaction'` 不激活对照版未做（§3.2 的源码结论未变）。
 - 已知：成员会话第 1 步组装时团队身份尚不可知（认领任务前），hint 从第 2 步开始出现，不影响功能。
 
 ---
@@ -416,16 +432,17 @@ section / context 的 `text()` 对无团队会话返回空串；队长建团后�
 |---|---|---|
 | 7-2 | 「本任务是否经过压缩」回传 | **不记** |
 | 7-5 | tokenBudget 作用域 | **只管团队会话** |
-| 7-6 | 开关 | **两个开关 `notes` / `history`，默认全开**；tokenBudget 由插件管理面板整体启停 |
+| 7-6 | 开关 | **`notes` / `history` 默认全开**（实现时另加 `contextTool`，同样默认开、即时生效）；tokenBudget 由插件管理面板整体启停 |
 | 新 | 阈值 | 已用 **37% 提示**、**45% 强制换窗压缩**，两值可配（落点 §2.4） |
-| 新 | 名称 / 形态 | **dsh-token-budget**（显式与隐式统一），独立 dsh 插件，与社区原版并存；两个开关 = `notes` / `history` |
+| 新 | 名称 / 形态 | **dsh-token-budget**（显式与隐式统一），独立 dsh 插件，与社区原版并存 |
 | 7-8 | 本会话先前窗口原文 | **需要**：做只读的 `history.*` 等价工具；不依赖已弃用接口与 `session-query`，倾向自建（方案调研中：`docs/research/context-compare/community-plugins-survey.md`） |
 | 7-9 | fork 窗口计数 | **不扣除**（同意建议） |
 | §2.4 | 45% 落点 | **方案 D1**（替代 A）：插件仅对团队会话调用 `compactIfNeeded(agent,'context-overflow')` 主动压缩 |
 | 7-8 / §4.4 | 只读历史实现 | **采纳 §4.4**：persistence 只读分页 + 内存索引；zstd→none 作为可选实验配置 |
 | 7-10 | 摘要拦截 | **v1 不拦截**。**目标方案（后续版本）= 模板交接 + LLM 兜底**：笔记新鲜时返回插件自拼的短交接（任务契约 + 笔记指针），缺失或过期时走原 LLM 摘要；拦截点倾向 `serviceFor` 取得的引擎 `summarize()` 钩子，草案与待定项见 `docs/reference/dsh-plugin-survey-2026-10-14/04-handoff-design.md`、`handoff-prep/E-synthesis.md`。用户 2026-10-14 认为这是理想状态，2026-10-15 确认按原进度在后续版本加入 |
+| 新 | 团队级历史 §4.3 | **v1 不做，移到后续版本**（用户 2026-10-16）；以 0.1.0 为基线推进后续版本，先讨论再实现 |
 | 7-1 | 缓存论 | **分支 B**：窗口内会变的内容走运行时上下文；system 头只放每会话固定的指针 |
-| 7-3 | 合并层 | 设置开关 `notesMerge.enabled`，**默认关 = 由队长维护** `workspace.md`；开启时用宿主 `ctx.llm.listProviders()` / `listModels(provider)` 列出用户 DSH 账户上的模型与推理强度（`LlmReasoningEffortInfo`，`llm/llm/src/types.ts:369-382`），由用户选择，再经 `ctx.llm.stream()` 调用。**触发时机（用户确认，2026-10-14）：成员任务完成时**合并该成员笔记。宿主 0.2.0-rc.2 不认识 `agent-teams/*` 事件类型，agent-teams 会跳过写入（`dsh-agent-teams/src/events.ts:45-54`），所以实现改为：每个 `agent_teams_*` 工具调用返回后重读 team.json，与快照比较找出新完成的成员任务；同一工作区排队执行，读 → 调模型 → 条件写入，冲突重试一次，超限或 `max-tokens` 截断则放弃 |
+| 7-3 | 合并层 | 设置开关 `notesMerge.enabled`，**默认关 = 由队长维护** `workspace.md`；开启时由用户在设置页从模型下拉中选择模型与推理强度（实现：前端 `ctx.remote.session.modelCatalog()` 级联下拉，原设计为 `ctx.llm.listProviders()` / `listModels(provider)`），再经 `ctx.llm.stream()` 调用（`llm` 运行时 `ctx.get` 取得，不进 inject）。**触发时机（用户确认，2026-10-14）：成员任务完成时**合并该成员笔记。宿主 0.2.0-rc.2 不认识 `agent-teams/*` 事件类型，agent-teams 会跳过写入（`dsh-agent-teams/src/events.ts:45-54`），所以实现改为：每个 `agent_teams_*` 工具调用返回后重读 team.json，与快照比较找出新完成的成员任务；同一工作区排队执行，读 → 调模型 → 条件写入，冲突重试一次，超限或 `max-tokens` 截断则放弃 |
 | 7-4 | hint 来源 | 任务 id + 标题（缓存的 `team.json`）+ 笔记元数据（自己的文件 + 队友最近 ≤5 个） |
 | 新 | 提示档位 | `bucketStep` = **3%**（37/40/43%） |
 | 7-7 / §2.4 | 45% 落点（已被方案 D 取代） | ~~方案 A~~：自动压缩是兜底；本质是把 compaction-basic 的触发配置交给用户在 DSH 现有的 Agent presets 设置页里调，本插件只在提示文本里镜像这个数 |
