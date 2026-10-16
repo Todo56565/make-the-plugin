@@ -83,6 +83,16 @@ dsh --profile <profile>             # 或 dsh web --profile <profile>
 - 压缩后，新窗口开头会有【团队上下文】段落，列出当前任务和最近笔记；成员可用 `team_notes` 读回笔记，或用 `history_*` 工具查原文。
 - 想让队长统一整理共享笔记，保持 `notesMerge` 关闭，在任务说明里让队长维护 `workspace.md`；想自动合并，打开 `notesMerge` 并选一个模型。
 
+成员工具策略：agent-teams 允许部署方在它的配置里声明 `toolPolicies`，再给成员挑一个策略。策略若写了 `allow`，成员就**只看得到列出的工具**（agent-teams 会自动补上它自己的 4 个协调工具，但不会补本插件的）。这时要把本插件的工具名一起列进去，否则成员看不到它们：
+
+```yaml
+toolPolicies:
+  researcher:
+    allow: [read, glob, grep, team_notes, context_remaining, history_list_windows, history_list_items, history_read_item, history_search_contents]
+```
+
+只用 `deny`、或成员没选策略时，不需要处理。
+
 运行时文件：笔记写在工作区 `.agent-teams/.context/notes/` 下（agent-teams 默认把 `.agent-teams` 排除在交付审计之外）；历史工具只读会话文件，不另存数据。
 
 ## 可选：关闭会话文件压缩（实验）
