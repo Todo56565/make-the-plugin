@@ -1,5 +1,7 @@
+import type { OwnNoteState } from '../prompt/handoff.ts'
+
 /**
- * 换窗状态与决策（设计 0.3.0 §3、§7-2、§9a-2~5、§9a-9）。纯逻辑，便于测试。
+ * 换窗状态与决策（设计 0.3.0 §3、§7-2、§9a-2~5、§9a-9、§9a-11）。纯逻辑，便于测试。
  *
  * 状态一律按会话 id 存：成员 Agent 每轮重建，挂在实例上的状态会丢（PoC-2.5）。
  * 每份状态都带窗口编号，窗口变了（无论谁换的窗）就作废。
@@ -9,8 +11,6 @@
 export type SwitchReason =
   /** 模型调用了 context_new_window（视为「笔记写完」的声明）。 */
   | 'tool'
-  /** 到换窗点时本窗口已写过笔记，直接换。 */
-  | 'threshold'
   /** 成员看不到 team_notes，到换窗点直接换。 */
   | 'no-notes'
   /** 兜底额度用完，或兜底中结束本轮后再次被唤醒。 */
@@ -18,6 +18,8 @@ export type SwitchReason =
 
 export interface FallbackState {
   window: number
+  /** 进入兜底的时间（毫秒）：交接里只有此后写的笔记才算「最新」（§9a-11）。 */
+  startedAt: number
   /** 进入兜底时的压力 + fallbackBufferTokens。 */
   deadline: number
   /** 进入兜底那一轮的控制信号：之后组装时信号不同 ⇒ 已是新的一轮（§9a-9）。 */
@@ -87,6 +89,21 @@ export function freshnessOf(input: {
   return { fresh: byWrite || byMtime, ...(at === undefined ? {} : { at }) }
 }
 
+/**
+ * 交接里「你的笔记」的状态（§9a-4、§9a-11）。`fallbackStartedAt` 为本窗口进入兜底的时间，没进兜底为 undefined：
+ * - 本窗口没写 ⇒ stale
+ * - 没进兜底（到换窗点前调用 context_new_window、宿主自动压缩等）⇒ updated
+ * - 兜底开始后写过 ⇒ updated；被额度强制换窗 ⇒ incomplete
+ * - 只在兜底开始前写过 ⇒ outdated（可能未含最新进展）
+ */
+export function ownNoteStateOf(freshness: Freshness, fallbackStartedAt: number | undefined, reason: SwitchReason | undefined): OwnNoteState {
+  if (!freshness.fresh || freshness.at === undefined) return { kind: 'stale' }
+  const at = freshness.at
+  if (fallbackStartedAt === undefined) return { kind: 'updated', at }
+  if (at < fallbackStartedAt) return { kind: 'outdated', at }
+  return reason === 'buffer' ? { kind: 'incomplete', at } : { kind: 'updated', at }
+}
+
 export type Decision =
   | { kind: 'none' }
   | { kind: 'compact'; reason: SwitchReason }
@@ -99,8 +116,6 @@ export interface DecideInput {
   pressure: number
   compactAtRatio: number
   fallbackBufferTokens: number
-  /** 本窗口写过自己的笔记。 */
-  fresh: boolean
   /** 本会话可见工具里有 team_notes。 */
   canWriteNotes: boolean
   /** 本次组装的控制信号（每轮一个）。 */
@@ -113,7 +128,7 @@ export interface DecideInput {
  * 1. 本窗口请求过换窗 ⇒ 换（tool）
  * 2. 队长：其余情况都不动（只提醒；宿主约 80% 压缩兜底）
  * 3. 成员兜底中：额度用完，或已是新的一轮 ⇒ 换（buffer）；否则继续等。写笔记本身不触发换窗
- * 4. 成员到换窗点：写过笔记 ⇒ 换（threshold）；看不到 team_notes ⇒ 换（no-notes）；否则进兜底
+ * 4. 成员到换窗点：看不到 team_notes ⇒ 换（no-notes）；否则一律进兜底，不看本窗口是否写过笔记（对齐 Codex，§9a-11）
  */
 export function decide(input: DecideInput): Decision {
   const { state } = input
@@ -126,7 +141,6 @@ export function decide(input: DecideInput): Decision {
     return { kind: 'none' }
   }
   if (!(input.ratio >= input.compactAtRatio)) return { kind: 'none' }
-  if (input.fresh) return { kind: 'compact', reason: 'threshold' }
   if (!input.canWriteNotes) return { kind: 'compact', reason: 'no-notes' }
   return { kind: 'enter-fallback', deadline: input.pressure + input.fallbackBufferTokens }
 }

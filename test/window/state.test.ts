@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { SwitchStates, decide, freshnessOf, newWindowVerdict, type DecideInput } from '../../src/window/state.ts'
+import { SwitchStates, decide, freshnessOf, newWindowVerdict, ownNoteStateOf, type DecideInput } from '../../src/window/state.ts'
 
 const turnA = {}
 const turnB = {}
@@ -8,7 +8,7 @@ const turnB = {}
 function input(over: Partial<DecideInput>): DecideInput {
   return {
     role: 'member', window: 1, ratio: 0.3, pressure: 300_000, compactAtRatio: 0.45, fallbackBufferTokens: 16_384,
-    fresh: false, canWriteNotes: true, turn: turnA, state: {}, ...over,
+    canWriteNotes: true, turn: turnA, state: {}, ...over,
   }
 }
 
@@ -20,13 +20,13 @@ test('新鲜度：mtime ≥ 窗口开始，或本窗口记录到写入', () => {
   assert.deepEqual(freshnessOf({ window: 2, windowStart: 100, mtimeMs: 90, lastWrite: { window: 1, at: 95 } }), { fresh: false, at: 90 }, '上一窗口的写入不算')
 })
 
-test('成员：未到换窗点不动；到点写过笔记直接换', () => {
+test('成员：未到换窗点不动', () => {
   assert.deepEqual(decide(input({ ratio: 0.44 })), { kind: 'none' })
-  assert.deepEqual(decide(input({ ratio: 0.45, fresh: true })), { kind: 'compact', reason: 'threshold' })
 })
 
-test('成员：到点没写笔记 ⇒ 进兜底，额度加在当前压力上', () => {
+test('成员：到点一律进兜底（不看本窗口是否写过笔记），额度加在当前压力上', () => {
   assert.deepEqual(decide(input({ ratio: 0.45, pressure: 450_000 })), { kind: 'enter-fallback', deadline: 466_384 })
+  assert.deepEqual(decide(input({ ratio: 0.45, pressure: 450_000, state: { lastWrite: { window: 1, at: 1 } } })), { kind: 'enter-fallback', deadline: 466_384 }, '写过笔记也进兜底')
 })
 
 test('成员：看不到 team_notes ⇒ 不兜底，直接换', () => {
@@ -34,14 +34,14 @@ test('成员：看不到 team_notes ⇒ 不兜底，直接换', () => {
 })
 
 test('兜底：状态粘住不按比例重判；写笔记不触发换窗；额度用完才换', () => {
-  const state = { fallback: { window: 1, deadline: 466_384, turn: turnA } }
+  const state = { fallback: { window: 1, startedAt: 0, deadline: 466_384, turn: turnA }, lastWrite: { window: 1, at: 5 } }
   assert.deepEqual(decide(input({ ratio: 0.40, pressure: 400_000, state })), { kind: 'none' }, '用量回落仍在兜底')
-  assert.deepEqual(decide(input({ ratio: 0.46, pressure: 460_000, fresh: true, state })), { kind: 'none' }, '写了笔记也不换，等工具或额度')
+  assert.deepEqual(decide(input({ ratio: 0.46, pressure: 460_000, state })), { kind: 'none' }, '写了笔记也不换，等工具或额度')
   assert.deepEqual(decide(input({ ratio: 0.47, pressure: 466_384, state })), { kind: 'compact', reason: 'buffer' })
 })
 
 test('兜底中结束本轮：下一次被唤醒的第一步换窗', () => {
-  const state = { fallback: { window: 1, deadline: 466_384, turn: turnA } }
+  const state = { fallback: { window: 1, startedAt: 0, deadline: 466_384, turn: turnA } }
   assert.deepEqual(decide(input({ ratio: 0.46, pressure: 455_000, turn: turnB, state })), { kind: 'compact', reason: 'buffer' })
   assert.deepEqual(decide(input({ ratio: 0.46, pressure: 455_000, turn: undefined, state })), { kind: 'none' }, '没有轮次信号的组装不换')
 })
@@ -54,7 +54,7 @@ test('请求过换窗 ⇒ 下一步换（成员、队长都一样）', () => {
 
 test('队长：到点、超过兜底额度都不强制换窗', () => {
   assert.deepEqual(decide(input({ role: 'captain', ratio: 0.6, pressure: 600_000 })), { kind: 'none' })
-  assert.deepEqual(decide(input({ role: 'captain', ratio: 0.6, state: { fallback: { window: 1, deadline: 1, turn: turnA } } })), { kind: 'none' })
+  assert.deepEqual(decide(input({ role: 'captain', ratio: 0.6, state: { fallback: { window: 1, startedAt: 0, deadline: 1, turn: turnA } } })), { kind: 'none' })
 })
 
 test('context_new_window：没写笔记每窗口只拒绝一次', () => {
@@ -70,7 +70,7 @@ test('context_new_window：没写笔记每窗口只拒绝一次', () => {
 test('SwitchStates：按会话 id 存，换窗后旧窗口状态作废，写入记录保留', () => {
   const states = new SwitchStates()
   const s = states.get('sess')
-  s.fallback = { window: 1, deadline: 10, turn: turnA }
+  s.fallback = { window: 1, startedAt: 0, deadline: 10, turn: turnA }
   s.newWindow = 1
   s.refused = 1
   states.recordWrite('sess', 1, 123)
@@ -81,4 +81,17 @@ test('SwitchStates：按会话 id 存，换窗后旧窗口状态作废，写入�
   assert.equal(after.refused, undefined)
   assert.deepEqual(after.lastWrite, { window: 1, at: 123 })
   assert.equal(states.peek('other'), undefined)
+})
+
+test('交接笔记状态：只有兜底开始后写的才算最新', () => {
+  const fresh = (at: number) => ({ fresh: true, at })
+  assert.deepEqual(ownNoteStateOf({ fresh: false }, 100, 'tool'), { kind: 'stale' }, '本窗口没写')
+  assert.deepEqual(ownNoteStateOf({ fresh: false, at: 50 }, 100, 'buffer'), { kind: 'stale' }, '上一窗口写的不算')
+  assert.deepEqual(ownNoteStateOf(fresh(120), 100, 'tool'), { kind: 'updated', at: 120 }, '兜底后补记并调用工具')
+  assert.deepEqual(ownNoteStateOf(fresh(100), 100, 'tool'), { kind: 'updated', at: 100 }, '恰在兜底开始时刻算之后')
+  assert.deepEqual(ownNoteStateOf(fresh(120), 100, 'buffer'), { kind: 'incomplete', at: 120 }, '兜底后写了但额度用完')
+  assert.deepEqual(ownNoteStateOf(fresh(80), 100, 'tool'), { kind: 'outdated', at: 80 }, '只在兜底前写过，调用工具换窗')
+  assert.deepEqual(ownNoteStateOf(fresh(80), 100, 'buffer'), { kind: 'outdated', at: 80 }, '只在兜底前写过，额度用完')
+  assert.deepEqual(ownNoteStateOf(fresh(80), undefined, 'tool'), { kind: 'updated', at: 80 }, '没进兜底：到点前主动换窗')
+  assert.deepEqual(ownNoteStateOf(fresh(80), undefined, undefined), { kind: 'updated', at: 80 }, '没进兜底：宿主自动压缩（队长）')
 })

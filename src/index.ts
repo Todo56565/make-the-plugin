@@ -2,7 +2,7 @@
  * dsh-token-budget：@nanmicoder/dsh-agent-teams 的补丁插件。
  *
  * 宿主层插件（与 agent-teams 同层），只作用于团队会话：
- * - 换窗交接（0.3.0）：成员 37% 起提醒、45% 换窗（未写笔记先兜底），队长只提醒两次；
+ * - 换窗交接（0.3.0）：成员 37% 起提醒、45% 先兜底（补记笔记）再换窗，队长只提醒两次；
  *   换窗不发摘要请求，摘要位置换成【交接】（接管 compaction 引擎的 summarize()）；context_new_window 工具
  * - notes：成员笔记与共享 workspace.md（开关 `notes`）
  * - history：只读历史工具（开关 `history`）
@@ -23,7 +23,7 @@ import type {} from '@deepseek-ai/dsh-tools'
 import { Config, refreshSettings, toSettings, validateConfig, type Settings } from './config.ts'
 import { TeamDirectory, isTeamEvent } from './team/directory.ts'
 import { registerWindowCounter, windowOf, type WindowInfo } from './window/counter.ts'
-import { SwitchStates, decide, freshnessOf, newWindowVerdict, type Freshness, type SwitchReason } from './window/state.ts'
+import { SwitchStates, decide, freshnessOf, newWindowVerdict, ownNoteStateOf, type Freshness, type SwitchReason } from './window/state.ts'
 import { registerNewWindowTool } from './window/new-window-tool.ts'
 import { captainLevels, levelOf, memberLevels, usageOf } from './budget/usage.ts'
 import { FALLBACK_PROMPT, captainReminderText, memberReminderText } from './budget/reminder.ts'
@@ -150,8 +150,9 @@ export function apply(ctx: Context, raw: Config): void {
     const reason = switching.get(owner.id)
     let own: OwnNoteState = { kind: 'stale' }
     try {
-      const fresh = freshness(owner, identity, window)
-      if (fresh.fresh && fresh.at !== undefined) own = reason === 'buffer' ? { kind: 'incomplete', at: fresh.at } : { kind: 'updated', at: fresh.at }
+      const fallback = states.peek(owner.id)?.fallback
+      const startedAt = fallback !== undefined && fallback.window === window.index ? fallback.startedAt : undefined
+      own = ownNoteStateOf(freshness(owner, identity, window), startedAt, reason)
     } catch { /* 当作未更新 */ }
     let metas: ReturnType<typeof listNoteMetasSync> = []
     try {
@@ -377,7 +378,6 @@ export function apply(ctx: Context, raw: Config): void {
       pressure: usage.pressure,
       compactAtRatio: config.budget.compactAtRatio,
       fallbackBufferTokens: config.budget.fallbackBufferTokens,
-      fresh: identity.role === 'member' && usage.ratio >= config.budget.compactAtRatio ? freshness(agent, identity, window).fresh : false,
       canWriteNotes: canWriteNotes(agent),
       turn: signal,
       state,
@@ -386,8 +386,8 @@ export function apply(ctx: Context, raw: Config): void {
       case 'none':
         return false
       case 'enter-fallback':
-        state.fallback = { window: window.index, deadline: decision.deadline, turn: signal }
-        logger.info(`会话 ${agent.id}（${identity.agentKey}）已用 ${(usage.ratio * 100).toFixed(1)}%，本窗口未写笔记，进入兜底（额度到 ${decision.deadline} token）`)
+        state.fallback = { window: window.index, startedAt: Date.now(), deadline: decision.deadline, turn: signal }
+        logger.info(`会话 ${agent.id}（${identity.agentKey}）已用 ${(usage.ratio * 100).toFixed(1)}%，到换窗点，进入兜底（额度到 ${decision.deadline} token）`)
         return false
       case 'compact':
         return switchWindow(agent, signal, window, decision.reason, usage.ratio)

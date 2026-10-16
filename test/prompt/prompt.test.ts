@@ -67,8 +67,10 @@ test('交接（成员）：行序与内容同设计 §6，带 attempt_id', () =>
   assert.equal(clock(at), '14:20')
 })
 
-test('交接：笔记三种状态', () => {
+test('交接：笔记四种状态', () => {
   assert.match(handoffText(base({ own: { kind: 'incomplete', at } })), /bob\.md（42 行，上一窗口 14:20 更新，可能未写完，缺的用 history_\* 补）/)
+  assert.match(handoffText(base({ own: { kind: 'outdated', at } })), /bob\.md（42 行，上一窗口 14:20 更新，可能未含最新进展，缺的用 history_\* 补）/)
+  assert.match(handoffText(base({ own: { kind: 'outdated', at }, history: false })), /bob\.md（42 行，上一窗口 14:20 更新，可能未含最新进展）/)
   assert.match(handoffText(base({ own: { kind: 'stale' } })), /bob\.md（42 行，上一窗口未更新，进展需用 history_\* 恢复）/)
   assert.match(handoffText(base({ own: { kind: 'stale' }, metas: [] })), /bob\.md（尚未创建，上一窗口未更新/)
 })

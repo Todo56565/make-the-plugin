@@ -66,12 +66,14 @@ function cut(text: string, max: number): string {
   return chars.length <= max ? text : `${chars.slice(0, max).join('')}…`
 }
 
-/** 上一窗口里自己笔记的状态（§9a-4）。 */
+/** 上一窗口里自己笔记的状态（§9a-4、§9a-11）。 */
 export type OwnNoteState =
-  /** 写了，且由 context_new_window 或到点时已写过而换窗。 */
+  /** 写了且算最新：兜底开始后写的（调了 context_new_window），或没进兜底时本窗口写过。 */
   | { kind: 'updated'; at: number }
-  /** 写了，但被兜底额度强制换窗：可能没写完。 */
+  /** 兜底开始后写了，但被兜底额度强制换窗：可能没写完。 */
   | { kind: 'incomplete'; at: number }
+  /** 只在兜底开始前写过：可能未含最新进展。 */
+  | { kind: 'outdated'; at: number }
   /** 上一窗口没写。 */
   | { kind: 'stale' }
 
@@ -122,6 +124,8 @@ function ownNoteLine(input: HandoffInput, meta: NoteMeta | undefined, path: stri
       return `你的笔记：${path}（${lines}，上一窗口 ${clock(input.own.at)} 更新）`
     case 'incomplete':
       return `你的笔记：${path}（${lines}，上一窗口 ${clock(input.own.at)} 更新，可能未写完${input.history ? '，缺的用 history_* 补' : ''}）`
+    case 'outdated':
+      return `你的笔记：${path}（${lines}，上一窗口 ${clock(input.own.at)} 更新，可能未含最新进展${input.history ? '，缺的用 history_* 补' : ''}）`
     case 'stale':
       return `你的笔记：${path}（${lines}，上一窗口未更新，${recover}）`
   }

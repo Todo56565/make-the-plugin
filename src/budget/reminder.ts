@@ -40,9 +40,12 @@ export function captainReminderText(level: number, notes: boolean): string {
     : `【上下文预算】本窗口上下文已用约 ${level}%。方便时可以调用 ${NEW_WINDOW_TOOL} 换到新窗口；不换也可以继续工作。`
 }
 
-/** 成员兜底提示（对齐 Codex auto_compact_fallback_prompt；不限制工具）。 */
+/**
+ * 成员兜底提示（对齐 Codex auto_compact_fallback_prompt；不限制工具）。
+ * 到换窗点一律注入（§9a-11），措辞同时适用于本窗口写过 / 没写过笔记两种情况。
+ */
 export const FALLBACK_PROMPT = [
   '【上下文已用尽】本窗口上下文已到上限。不要继续任务，不要给最终答复；新窗口不会自动带上本窗口的内容。',
-  '现在把进展一次性写进你自己的笔记（尽量只调用一次 team_notes）：目标、决定、进展、经验、下一步，以及仍在处理的请求在哪个窗口、用什么关键词能搜到。',
-  `写完立即调用 ${NEW_WINDOW_TOOL}。`,
+  '现在把最新进展补记进你自己的笔记（尽量一次 team_notes）：目标、决定、进展、经验、下一步，以及仍在处理的请求在哪个窗口、用什么关键词能搜到。',
+  `然后立即调用 ${NEW_WINDOW_TOOL}。`,
 ].join('\n')

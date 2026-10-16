@@ -17,7 +17,7 @@ export interface BudgetConfig {
   compactAtRatio: number
   /** 提醒档位步长（默认 0.03 ⇒ 成员 37/40%，队长 45/48%）。 */
   bucketStep: number
-  /** 成员到 compactAtRatio 仍未写笔记时给的额外额度（token，默认 16384，同 Codex）。 */
+  /** 成员到 compactAtRatio 后补记笔记的额外额度（token，默认 16384，同 Codex）。 */
   fallbackBufferTokens: number
   /** 是否注册 context_remaining 工具（默认 true）。 */
   tool: boolean
@@ -119,7 +119,7 @@ export const Config = z.object({
   remindAtRatio: ratio(0.37, REMIND_MIN_RATIO).description('成员上下文已用比例达到该值起提醒（须小于 compactAtRatio，最低 0.01）').volatile(),
   compactAtRatio: ratio(0.45, COMPACT_MIN_RATIO).description('上下文已用比例达到该值时成员换窗（仅团队会话；队长只提醒；最低 0.03）').volatile(),
   bucketStep: z.number().min(0.01).max(0.5).step(0.01).default(0.03).description('提醒档位步长').volatile(),
-  fallbackBufferTokens: z.natural().min(1).default(16_384).description('成员到换窗点仍未写笔记时的额外额度（token）').volatile(),
+  fallbackBufferTokens: z.natural().min(1).default(16_384).description('成员到换窗点后补记笔记的额外额度（token）').volatile(),
   contextTool: z.boolean().default(true).description('注册 context_remaining 工具').volatile(),
   notesMerge: z.boolean().default(false).description('成员任务完成时自动合并共享笔记；关闭时由队长维护 workspace.md').volatile(),
   mergeProvider: z.string().description('合并使用的模型提供方').volatile(),

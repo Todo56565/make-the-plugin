@@ -62,4 +62,6 @@ test('队长提醒不催促；兜底提示要求一次写完再换窗', () => {
   assert.match(FALLBACK_PROMPT, /team_notes/)
   assert.match(FALLBACK_PROMPT, /context_new_window/)
   assert.match(FALLBACK_PROMPT, /不要继续任务/)
+  assert.match(FALLBACK_PROMPT, /把最新进展补记进你自己的笔记（尽量一次 team_notes）/)
+  assert.match(FALLBACK_PROMPT, /然后立即调用 context_new_window/)
 })
