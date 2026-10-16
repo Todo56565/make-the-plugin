@@ -34,6 +34,7 @@ import { HistorySource } from './history/source.ts'
 import { registerHistoryTools } from './history/tools.ts'
 import { registerTeamHistoryTool } from './team-history/tool.ts'
 import { HINT_CONTEXT_ORDER, WindowHintCache, hintText, listNoteMetasSync } from './prompt/hint.ts'
+import { FALLBACK_PROMPT, NEW_WINDOW_TOOL, PocState, ownLayerTools, levelOf, noteFreshness, pocLog, pocOptions, registerNewWindowTool, reminderLevels, templateSummary, visibleTools, windowInfoOf } from './poc/poc030.ts'
 
 export { Config }
 export const name = 'dsh-token-budget'
@@ -81,6 +82,8 @@ export function apply(ctx: Context, raw: Config): void {
 
   const teams = new TeamDirectory(config.stateDir, message => logger.warn(message))
   const gate = new CompactionGate()
+  const poc = new PocState()
+  void gate
   const notesPointer = new FrozenText()
   const hints = new WindowHintCache()
   /** 已告警过「取不到压缩引擎」的会话。 */
@@ -116,9 +119,13 @@ export function apply(ctx: Context, raw: Config): void {
       if (teams.identityOf(agent) === undefined) return ''
       const usage = usageOf(ctx, agent.session)
       if (usage === undefined) return ''
-      const bucket = bucketOf(usage.ratio, config.budget.remindAtRatio, config.budget.bucketStep)
+      // PoC：兜底期间注入兜底提示；否则按 0.3.0 §2 档位规则
+      if (poc.fallback.has(agent.id)) return FALLBACK_PROMPT
+      if (usage.ratio >= config.budget.compactAtRatio) return ''
+      const bucket = levelOf(usage.ratio, reminderLevels(config.budget.remindAtRatio, config.budget.compactAtRatio, config.budget.bucketStep))
+      void bucketOf
       if (bucket === undefined) return ''
-      return reminderText({ bucket, compactAtRatio: config.budget.compactAtRatio, notes: config.notes })
+      return reminderText({ bucket, compactAtRatio: config.budget.compactAtRatio, notes: config.notes }) + '\n记完可调用 context_new_window 自己换窗。'
     } catch (error) {
       // text() 在组装内同步执行，抛错会让整步失败：一律吞掉并告警
       logger.warn(`预算提示生成失败：${String(error)}`)
@@ -166,7 +173,9 @@ export function apply(ctx: Context, raw: Config): void {
     identityOf: agent => teams.identityOf(agent, true),
     storeFor,
     maxResults: config.historyOptions.maxResults,
+    onWrite: (identity, meta) => pocLog({ ev: 'note-write', team: identity.team.id, name: identity.agentKey, path: meta.path, bytes: meta.bytes }),
   }))
+  ctx.effect(() => registerNewWindowTool(ctx, { identityOf: agent => teams.identityOf(agent, true), state: poc }), 'dsh-token-budget: poc context_new_window')
   switchable('dsh-token-budget: notes section', () => config.notes, () => ctx.systemPrompt.section({
     name: 'dsh-token-budget:notes',
     order: NOTES_SECTION_ORDER,
@@ -205,68 +214,189 @@ export function apply(ctx: Context, raw: Config): void {
     compactAtRatio: () => config.budget.compactAtRatio,
   }))
 
-  // ── token budget：45% 主动压缩（方案 D1）──
-  /** 达到阈值时主动压缩；返回本次是否真的压缩了。 */
-  const maybeCompact = async (agent: Agent, signal: AbortSignal): Promise<boolean> => {
-    if (signal.aborted) return false
-    try {
-      if (teams.identityOf(agent) === undefined) return false
-      const usage = usageOf(ctx, agent.session)
-      if (usage === undefined || usage.ratio < config.budget.compactAtRatio) return false
-      const window = windowOf(ctx, agent.session) ?? 0
-      if (!gate.canAttempt(agent.id, window)) return false
-      const engine = compactionEngineOf(ctx, agent)
-      if (engine === undefined) {
-        // 该 agent 的 preset 没装压缩，或 serviceFor 暂时取不到：不消耗本窗口的尝试次数，下一步再取。
-        // 告警按会话只打一次，避免每步刷屏。
-        if (!engineMissingWarned.has(agent.id)) {
-          engineMissingWarned.add(agent.id)
-          logger.warn(`会话 ${agent.id} 已用 ${(usage.ratio * 100).toFixed(1)}%，但取不到压缩引擎（该 preset 未装压缩或暂未就绪），本步跳过主动压缩，之后每步重试`)
+  // ── PoC 0.3.0：压缩点流程（推迟一轮 / 兜底 restrict / 换窗工具 / 模板摘要）──
+  // serviceFor() 每次返回新的 cordis 代理，WeakSet 认不出同一实例：标记写在实例上（经代理转发到目标）
+  const PATCHED = Symbol.for('dsh-token-budget.poc030.summarize')
+  const engineFor = (agent: Agent): ReturnType<typeof compactionEngineOf> => {
+    const engine = compactionEngineOf(ctx, agent)
+    if (engine === undefined) return undefined
+    const options = pocOptions()
+    const raw = engine as unknown as {
+      summarize: (input: unknown, owner: Agent, signal?: AbortSignal) => Promise<unknown>
+      config: Record<string, unknown>
+    }
+    if ((engine as unknown as Record<symbol, unknown>)[PATCHED] !== true) {
+      (engine as unknown as Record<symbol, unknown>)[PATCHED] = true
+      const original = raw.summarize.bind(engine)
+      // PoC-5：实例属性遮蔽原型方法；regionDependencies() 动态取 this.summarize，宿主自动压缩同样经过这里
+      raw.summarize = async (input, owner, signal) => {
+        const identity = teams.identityOf(owner, true)
+        const window = windowInfoOf(owner.session as never)
+        const fresh = identity === undefined ? false : noteFreshness(identity, window).fresh
+        const stack = new Error().stack?.split('\n').slice(2, 9).map(line => line.trim()) ?? []
+        if (!pocOptions().templateSummary || identity === undefined) {
+          pocLog({ ev: 'summarize', mode: 'original-llm', agent: owner.id, window: window.index, stack })
+          return original(input, owner, signal)
         }
-        return false
+        const target = owner.session.requestHeader()?.config
+        pocLog({ ev: 'summarize', mode: 'template', agent: owner.id, name: identity.agentKey, window: window.index, fresh, stack })
+        return {
+          summary: [{ type: 'text', text: templateSummary(identity, window, fresh) }],
+          provider: target?.provider ?? 'none',
+          model: target?.model ?? 'none',
+        }
       }
-      engineMissingWarned.delete(agent.id)
-      gate.begin(agent.id, window)
-      try {
-        const result = await engine.compactIfNeeded(agent, 'context-overflow', signal)
-        logger.info(result === null
-          ? `会话 ${agent.id} 已用 ${(usage.ratio * 100).toFixed(1)}%，没有可压缩的范围`
-          : `会话 ${agent.id} 已用 ${(usage.ratio * 100).toFixed(1)}%，已主动压缩`)
-        return result !== null
-      } finally {
-        gate.end(agent.id)
-      }
+      pocLog({ ev: 'engine-patched', agent: agent.id, ctor: (engine as object).constructor?.name, ownSummarize: Object.prototype.hasOwnProperty.call(engine, 'summarize') })
+    }
+    if (options.hostOverride !== undefined && raw.config.thresholdRatio !== options.hostOverride.thresholdRatio) {
+      const { retainRatio: _drop, ...rest } = raw.config
+      raw.config = Object.freeze({ ...rest, thresholdRatio: options.hostOverride.thresholdRatio, retainTokens: options.hostOverride.retainTokens })
+      pocLog({ ev: 'host-threshold-override', config: raw.config })
+    }
+    return engine
+  }
+
+  // PoC-5：统计所有 LLM 请求（purpose=compaction 即摘要请求）
+  ctx.on('llm/stream' as never, ((options: { purpose?: string; sessionId?: string; model?: string }, next: () => unknown) => {
+    pocLog({ ev: 'llm-stream', purpose: options.purpose ?? null, sessionId: options.sessionId ?? null, model: options.model ?? null })
+    return next()
+  }) as never)
+
+  const running = new Set<string>()
+  const lastFullTools = new Map<string, typeof _toolsType>()
+  let _toolsType: Awaited<ReturnType<typeof ctx.systemPrompt.assemble>>["tools"] = []
+  void _toolsType
+  const compactNow = async (agent: Agent, signal: AbortSignal, reason: string): Promise<boolean> => {
+    const engine = engineFor(agent)
+    if (engine === undefined) { pocLog({ ev: 'no-engine', agent: agent.id }); return false }
+    running.add(agent.id)
+    try {
+      const before = usageOf(ctx, agent.session)
+      const result = await engine.compactIfNeeded(agent, 'context-overflow', signal)
+      const after = usageOf(ctx, agent.session)
+      pocLog({ ev: 'plugin-compact', agent: agent.id, reason, ok: result !== null, before: before?.ratio, after: after?.ratio, window: windowInfoOf(agent.session as never).index })
+      if (result !== null) poc.clear(agent.id, `compacted:${reason}`)
+      return result !== null
     } catch (error) {
-      logger.warn(`主动压缩失败，继续本步：${error instanceof Error ? error.message : String(error)}`)
+      pocLog({ ev: 'plugin-compact-error', agent: agent.id, reason, error: String(error) })
       return false
+    } finally {
+      running.delete(agent.id)
     }
   }
 
-  // 主路径：在 system-prompt/assemble 里压缩。
-  // 宿主每步先组装（runtime context 的 text() 只在这里求值一次），再跑 agent/pre-step；
-  // 若在 pre-step 才压缩，压缩后第一步带的仍是压缩前算出的预算提示和窗口 hint。
-  // 组装时各 context 已求值，所以压缩后就地重算本插件的两段。
+  /** 返回本次是否压缩了。 */
+  const onAssemble = async (agent: Agent, signal: AbortSignal): Promise<boolean> => {
+    if (signal.aborted || running.has(agent.id)) return false
+    const identity = teams.identityOf(agent)
+    if (identity === undefined) return false
+    engineFor(agent) // 尽早接管 summarize()
+    const usage = usageOf(ctx, agent.session)
+    if (usage === undefined) return false
+    const options = pocOptions()
+    const window = windowInfoOf(agent.session as never)
+    const fresh = noteFreshness(identity, window)
+    const state = poc.fallback.get(agent.id)
+    if (state !== undefined && state.window !== window.index) poc.clear(agent.id, 'window-changed-elsewhere')
+    pocLog({
+      ev: 'assemble', agent: agent.id, name: identity.agentKey, role: identity.role,
+      pressure: usage.pressure, W: usage.contextWindow, ratio: Math.round(usage.ratio * 10000) / 10000,
+      window: window.index, windowStart: window.startTime, noteMtime: fresh.mtimeMs, fresh: fresh.fresh,
+      fallback: poc.fallback.has(agent.id), visible: visibleTools(ctx, agent),
+      headerTools: agent.session.requestHeader()?.tools?.map(tool => tool.name).sort(),
+    })
+    if (poc.newWindow.get(agent.id) === window.index) return compactNow(agent, signal, 'context_new_window')
+    if (!options.pluginCompaction) return false
+    if (identity.role === 'captain' && options.captainSkip) return false
+    if (usage.ratio < config.budget.compactAtRatio) return false
+    if (fresh.fresh) return compactNow(agent, signal, state === undefined ? 'threshold-fresh' : 'fallback-note-written')
+    if (state === undefined) {
+      const next: { window: number; startPressure: number; deadline: number; revoke?: () => void } = {
+        window: window.index, startPressure: usage.pressure, deadline: usage.pressure + options.fallbackBufferTokens,
+      }
+      poc.fallback.set(agent.id, next)
+      const before = visibleTools(ctx, agent)
+      if (identity.role === 'member') {
+        if (options.probeUnknown && !poc.probed) {
+          poc.probed = true
+          try {
+            const revoke = agent.ctx.tools.restrict({ allow: ['team_notes', 'no_such_tool_poc'] })
+            revoke()
+            pocLog({ ev: 'restrict-probe-unknown', threw: false })
+          } catch (error) {
+            pocLog({ ev: 'restrict-probe-unknown', threw: true, error: String(error), ownLayer: ownLayerTools(ctx, agent) })
+          }
+        }
+        try {
+          next.revoke = agent.ctx.tools.restrict({ allow: options.fallbackAllow })
+          pocLog({ ev: 'restrict-applied', agent: agent.id, allow: options.fallbackAllow })
+        } catch (error) {
+          pocLog({ ev: 'restrict-error', agent: agent.id, error: String(error).slice(0, 600) })
+        }
+      }
+      pocLog({ ev: 'deferred', agent: agent.id, name: identity.agentKey, ratio: usage.ratio, deadline: next.deadline, visibleBefore: before, visibleAfter: visibleTools(ctx, agent) })
+      return false
+    }
+    if (usage.pressure >= state.deadline) return compactNow(agent, signal, 'buffer-exhausted')
+    pocLog({ ev: 'deferred-again', agent: agent.id, pressure: usage.pressure, deadline: state.deadline })
+    return false
+  }
+
   ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
     const agent = context.agent
     const signal = context.signal
-    const compacted = agent !== undefined && signal !== undefined && await maybeCompact(agent, signal)
+    const hadFallback = agent !== undefined && poc.fallback.has(agent.id)
+    const compacted = agent !== undefined && signal !== undefined && await onAssemble(agent, signal)
     const assembly = await next()
-    if (!compacted) return assembly
+    if (agent === undefined) return assembly
+    let tools = assembly.tools
+    const hasFallback = poc.fallback.has(agent.id)
+    if (!hasFallback && !hadFallback) lastFullTools.set(agent.id, assembly.tools)
+    if (pocOptions().syncTools && hadFallback !== hasFallback) {
+      // restrict/revoke 发生在组装瀑布内，而 assembly.tools 在瀑布之前已算好：按当前 view 改写本步工具
+      const visible = new Set(visibleTools(ctx, agent) as string[])
+      const base = hasFallback ? assembly.tools : (lastFullTools.get(agent.id) ?? assembly.tools)
+      tools = base.filter(tool => visible.has(tool.name))
+      pocLog({ ev: 'sync-tools', agent: agent.id, entering: hasFallback, before: assembly.tools.map(tool => tool.name).length, after: tools.map(tool => tool.name) .length })
+    }
     return {
       ...assembly,
+      tools,
       contexts: assembly.contexts.map(entry => entry.name === BUDGET_CONTEXT_NAME
         ? { ...entry, text: budgetText(context) }
-        : entry.name === HINT_CONTEXT_NAME
+        : entry.name === HINT_CONTEXT_NAME && compacted
           ? { ...entry, text: windowHintText(context) }
           : entry),
     }
   })
 
-  // 兜底：组装上下文不带 agent / signal 的宿主仍在 pre-step 压缩（同窗口只尝试一次，与主路径不重复）
-  ctx.on('agent/pre-step', async ({ agent, signal }, next) => {
-    await maybeCompact(agent, signal)
-    return next()
+  // PoC-6：记录每步放行的输入（信箱回执）与压缩的先后
+  ctx.on('agent/pre-step', async (payload, next) => {
+    const decision = await next()
+    const delay = pocOptions().delay
+    if (delay !== undefined && decision.kind === 'enter') {
+      const identity = teams.identityOf(payload.agent)
+      const usage = usageOf(ctx, payload.agent.session)
+      if (identity !== undefined && delay.names.includes(identity.agentKey) && usage !== undefined && usage.ratio >= delay.minRatio) {
+        pocLog({ ev: 'delay', agent: payload.agent.id, name: identity.agentKey, step: payload.step, ms: delay.ms })
+        await new Promise(resolve => setTimeout(resolve, delay.ms))
+      }
+    }
+    try {
+      if (teams.identityOf(payload.agent) !== undefined) {
+        const messages = decision.kind === 'enter' ? decision.messages.map(message => {
+          const text = message.content.map(block => block.type === 'text' ? block.text : `[${block.type}]`).join(' ')
+          return { source: (message as { source?: { kind?: string } }).source?.kind ?? null, text: text.slice(0, 160) }
+        }) : []
+        pocLog({ ev: 'pre-step', agent: payload.agent.id, step: payload.step, turn: payload.turn, kind: decision.kind, window: windowInfoOf(payload.agent.session as never).index, messages })
+      }
+    } catch (error) { pocLog({ ev: 'pre-step-log-error', error: String(error) }) }
+    return decision
   })
+  ctx.on('session/event', (session, event) => {
+    if (event.type.startsWith('compaction/')) pocLog({ ev: 'session-event', session: session.id, type: event.type, seq: event.seq })
+  })
+  void NEW_WINDOW_TOOL
 }
 
 /** 合并单次调用超时。 */
