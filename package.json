@@ -1,6 +1,6 @@
 {
   "name": "dsh-token-budget",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "private": true,
   "description": "dsh-agent-teams 的补丁插件：团队会话的上下文预算提示、45% 主动压缩、成员笔记与只读历史工具",
   "type": "module",
@@ -70,6 +70,7 @@
     "@deepseek-ai/dsh-token-meter": "0.2.0-rc.2",
     "@deepseek-ai/dsh-tools": "0.2.0-rc.2",
     "@deepseek-ai/schemastery": "^3.18.2",
+    "@nanmicoder/dsh-agent-teams": "0.1.23",
     "react": "^18.2.0"
   },
   "peerDependenciesMeta": {
