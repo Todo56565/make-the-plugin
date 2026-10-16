@@ -95,7 +95,7 @@ export function registerTeamNotesTool(ctx: Context, deps: NotesToolDeps): () => 
       'action：list 列出笔记；read 读取；write 全量重写；append 追加；search 区分大小写的字面搜索。',
       'path：省略表示你自己的笔记；workspace.md 为工作区共享笔记；<成员>.md 为本团队某成员的笔记。',
       '只能写自己的笔记和 workspace.md，可以读本团队所有笔记。单个文件有大小上限，超出会被拒绝，请保持精简。',
-      '不要把任务契约抄进笔记（以团队任务为准），只记进度、关键结论、决定和下一步。',
+      '不要把任务契约抄进笔记（以团队任务为准），只记进度、关键结论、决定、下一步、约束与用户要求、关键数据与引用（确切路径、命令、报错、数字），并区分已验证与推测。',
     ].join('\n'),
     parameters: {
       action: { type: 'string', enum: ['list', 'read', 'write', 'append', 'search'], required: true, description: '操作' },
