@@ -6,7 +6,7 @@
 - **只作用于团队会话**（队长与成员），普通会话不受影响。
 - 插件整体由 DSH 插件管理面板启停。
 
-> 状态：**0.3.0（换窗交接）已实现，待发布**（`package.json` 仍为 0.2.0，版本号待确认后再升）。已在真实 DSH `0.2.0-rc.2` + agent-teams `0.1.23` 团队会话中以测试阈值验证，见 [`docs/design/0.3.0-handoff.md`](docs/design/0.3.0-handoff.md) §11。权威设计见 [`docs/design/plugin-design.md`](docs/design/plugin-design.md) 与 0.3.0 设计文档。
+> 状态：**0.3.0（换窗交接）已发布**（2026-10-17，tag `v0.3.0`）。已在真实 DSH `0.2.0-rc.2` + agent-teams `0.1.23` 团队会话中以测试阈值验证，见 [`docs/design/0.3.0-handoff.md`](docs/design/0.3.0-handoff.md) §11。权威设计见 [`docs/design/plugin-design.md`](docs/design/plugin-design.md) 与 0.3.0 设计文档。
 
 ## 它解决什么
 
@@ -138,7 +138,7 @@ make-the-plugin/
 ├── docs/
 │   ├── design/                    设计文档
 │   │   ├── plugin-design.md         权威设计规格（实现以此为准）
-│   │   ├── 0.3.0-handoff.md         0.3.0 换窗交接设计（已实现，待发布）
+│   │   ├── 0.3.0-handoff.md         0.3.0 换窗交接设计（已发布）
 │   │   └── 临时记录.md              设计讨论记录（只保留当前结论）
 │   ├── research/
 │   │   ├── 0.3.0-poc-results.md     0.3.0 设计 PoC 实测
