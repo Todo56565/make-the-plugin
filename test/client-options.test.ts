@@ -33,5 +33,8 @@ test('扁平配置换算与默认值', () => {
   assert.equal(s.notesOptions.hintMaxBytes, 4_000)
   assert.equal(s.notesOptions.hintRecentNotes, 5)
   assert.throws(() => Config({ hintMaxBytes: 3999 }), 'hintMaxBytes 最低 4000')
+  assert.throws(() => Config({ compactAtRatio: 0.02 }), 'compactAtRatio 最低 0.03')
+  assert.equal(toSettings(Config({ compactAtRatio: 0.03, remindAtRatio: 0.02 })).budget.compactAtRatio, 0.03)
+  assert.equal(toSettings({ ...Config({}), compactAtRatio: 0.01 } as never).budget.compactAtRatio, 0.03, '绕过 schema 的值也夹到最低值')
   assert.equal(toSettings(Config({ notesMerge: true, mergeProvider: 'ds', mergeModel: '' })).notesMerge.model, undefined)
 })

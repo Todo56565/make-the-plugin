@@ -31,14 +31,18 @@ function booleanField(field: string): SettingsFieldSpec {
   }
 }
 
-function ratioField(field: string): SettingsFieldSpec {
+/** 比例字段的最低值（与插件 schema 一致）。 */
+export const RATIO_MIN: Partial<Record<typeof RATIO_FIELDS[number], number>> = { remindAtRatio: 0.01, compactAtRatio: 0.03 }
+
+function ratioField(field: typeof RATIO_FIELDS[number]): SettingsFieldSpec {
   const base = settingsNumberField(field)
+  const min = RATIO_MIN[field] ?? 0
   return {
     ...base,
     parse: (text) => {
       if (text.trim() === '') return { kind: 'clear' }
       const value = Number(text)
-      return Number.isFinite(value) && value > 0 && value < 1 ? { kind: 'set', value } : undefined
+      return Number.isFinite(value) && value > 0 && value >= min && value < 1 ? { kind: 'set', value } : undefined
     },
   }
 }

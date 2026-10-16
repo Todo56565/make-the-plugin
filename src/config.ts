@@ -100,15 +100,24 @@ export interface Config {
 /** 交接字节上限的默认值与最低值。 */
 export const HINT_MIN_BYTES = 4_000
 
-const ratio = (value: number) => z.number().min(0).max(1).step(0.01).default(value)
+/**
+ * compactAtRatio 的最低值。实测（2026-10-16，W = 1,000,000，deepseek-flash）：成员每个新窗口开局约 1.2%
+ * （首个请求 11.7k–12.2k token），0.03 时每窗口约 18k token 可用，换窗正常、无连环换窗；
+ * 再低则 remindAtRatio 只能 ≤ 0.01，低于开局用量，且队长开局约 2.1%。见 docs/design/0.3.0-handoff.md §11。
+ */
+export const COMPACT_MIN_RATIO = 0.03
+/** remindAtRatio 的最低值（须小于 compactAtRatio）。 */
+export const REMIND_MIN_RATIO = 0.01
+
+const ratio = (value: number, min = 0) => z.number().min(min).max(1).step(0.01).default(value)
 
 export const Config = z.object({
   stateDir: z.string().default('.agent-teams').description('agent-teams 状态目录名，须与 agent-teams 行的 stateDir 一致').volatile(),
   notes: z.boolean().default(true).description('成员笔记与共享 workspace.md').volatile(),
   history: z.boolean().default(true).description('只读历史工具：读取本会话先前窗口中被压缩隐藏的原始消息').volatile(),
   teamHistory: z.boolean().default(true).description('团队信件回看工具 team_history：含已读和已作废的信').volatile(),
-  remindAtRatio: ratio(0.37).description('上下文已用比例达到该值起提示').volatile(),
-  compactAtRatio: ratio(0.45).description('上下文已用比例达到该值时成员换窗（仅团队会话；队长只提醒）').volatile(),
+  remindAtRatio: ratio(0.37, REMIND_MIN_RATIO).description('成员上下文已用比例达到该值起提醒（须小于 compactAtRatio，最低 0.01）').volatile(),
+  compactAtRatio: ratio(0.45, COMPACT_MIN_RATIO).description('上下文已用比例达到该值时成员换窗（仅团队会话；队长只提醒；最低 0.03）').volatile(),
   bucketStep: z.number().min(0.01).max(0.5).step(0.01).default(0.03).description('提醒档位步长').volatile(),
   fallbackBufferTokens: z.natural().min(1).default(16_384).description('成员到换窗点仍未写笔记时的额外额度（token）').volatile(),
   contextTool: z.boolean().default(true).description('注册 context_remaining 工具').volatile(),
@@ -144,8 +153,8 @@ export function toSettings(raw: Config | { [K in keyof Config]: unknown }): Sett
     history: config.history,
     teamHistory: config.teamHistory,
     budget: {
-      remindAtRatio: config.remindAtRatio,
-      compactAtRatio: config.compactAtRatio,
+      remindAtRatio: Math.max(REMIND_MIN_RATIO, config.remindAtRatio),
+      compactAtRatio: Math.max(COMPACT_MIN_RATIO, config.compactAtRatio),
       bucketStep: config.bucketStep,
       fallbackBufferTokens: config.fallbackBufferTokens,
       tool: config.contextTool,
@@ -187,7 +196,7 @@ export function validateConfig(config: Settings): string[] {
   const problems: string[] = []
   const { remindAtRatio, compactAtRatio } = config.budget
   if (remindAtRatio >= compactAtRatio) {
-    problems.push(`remindAtRatio (${remindAtRatio}) 应小于 compactAtRatio (${compactAtRatio})，否则不会出现提示`)
+    problems.push(`remindAtRatio (${remindAtRatio}) 应小于 compactAtRatio (${compactAtRatio})，否则成员不会收到换窗前的提醒`)
   }
   if (config.notesMerge.enabled && (config.notesMerge.provider === undefined || config.notesMerge.model === undefined)) {
     problems.push('notesMerge 已开启，但未选择模型；自动合并不会运行')
