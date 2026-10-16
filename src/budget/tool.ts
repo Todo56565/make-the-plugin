@@ -55,7 +55,7 @@ export interface ContextToolDeps {
 export function registerContextRemainingTool(ctx: Context, deps: ContextToolDeps): () => void {
   return ctx.tools.register(defineTool({
     name: CONTEXT_REMAINING_TOOL,
-    description: '查询你自己会话的上下文余量：已用 token、上下文容量、预计自动压缩点和剩余 token（估算）。只能查询自己的会话。临近压缩前，先把进度写进笔记。',
+    description: '查询你自己会话的上下文已用量、预计自动压缩点和剩余 token（估算）。',
     parameters: {},
     output: {
       schema: {

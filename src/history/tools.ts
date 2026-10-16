@@ -105,8 +105,6 @@ export interface HistoryToolDeps {
   limits: () => HistoryLimits
 }
 
-const COMMON = '本会话先前窗口的只读历史：上下文压缩后，被摘要替换掉的原始消息仍可在这里找回。窗口 w1 是最早的窗口，每压缩一次进入下一个窗口。只能读自己的会话。原样传回工具给出的 window_id / item_id。'
-
 const textOutput = {
   schema: {
     type: 'object',
@@ -133,7 +131,7 @@ export function registerHistoryTools(ctx: Context, deps: HistoryToolDeps): () =>
   const disposers = [
     ctx.tools.register(defineTool({
       name: 'history_list_windows',
-      description: `${COMMON}\n列出窗口及其条目数、被隐藏条目数和时间范围。`,
+      description: '列出本会话的上下文窗口（w1 最早，每次压缩后加一）及条目数。压缩掉的原文在这里只读保留，只能查自己的会话。',
       parameters: {
         limit: { type: 'integer', description: '最多返回几个窗口' },
         recent_first: { type: 'boolean', description: '新的在前' },
@@ -146,7 +144,7 @@ export function registerHistoryTools(ctx: Context, deps: HistoryToolDeps): () =>
     })),
     ctx.tools.register(defineTool({
       name: 'history_list_items',
-      description: `${COMMON}\n按顺序列出条目预览（每条末尾有 [id: ...]）。标「已隐藏」的条目当前上下文里看不到原文。`,
+      description: '列出历史条目预览，可按窗口、角色、工具筛选。每条末尾的 [id: ...] 原样传给 history_read_item。',
       parameters: {
         ...filterParams,
         limit: { type: 'integer', description: '最多返回几条' },
@@ -160,7 +158,7 @@ export function registerHistoryTools(ctx: Context, deps: HistoryToolDeps): () =>
     })),
     ctx.tools.register(defineTool({
       name: 'history_read_item',
-      description: `${COMMON}\n读取一个条目的完整原文，可分段读。`,
+      description: '按 window_id 和 item_id 读取一个历史条目的原文，可分段。',
       parameters: {
         window_id: { type: 'string', required: true, description: '条目所在窗口 id' },
         item_id: { type: 'string', required: true, description: '条目 id，即 [id: ...] 里的值' },
@@ -175,7 +173,7 @@ export function registerHistoryTools(ctx: Context, deps: HistoryToolDeps): () =>
     })),
     ctx.tools.register(defineTool({
       name: 'history_search_contents',
-      description: `${COMMON}\n在条目原文中做区分大小写的字面搜索。`,
+      description: '在本会话历史原文中做区分大小写的字面搜索。',
       parameters: {
         query: { type: 'string', required: true, description: '字面字符串（区分大小写）' },
         ...filterParams,

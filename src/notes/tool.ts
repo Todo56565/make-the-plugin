@@ -90,16 +90,10 @@ export async function runTeamNotes(
 export function registerTeamNotesTool(ctx: Context, deps: NotesToolDeps): () => void {
   return ctx.tools.register(defineTool({
     name: TEAM_NOTES_TOOL,
-    description: [
-      'AgentTeams 团队笔记：在上下文压缩后保留进度与结论。笔记存放在磁盘上，压缩不会丢失。',
-      'action：list 列出笔记；read 读取；write 全量重写；append 追加；search 区分大小写的字面搜索。',
-      'path：省略表示你自己的笔记；workspace.md 为工作区共享笔记；<成员>.md 为本团队某成员的笔记。',
-      '只能写自己的笔记和 workspace.md，可以读本团队所有笔记。单个文件有大小上限，超出会被拒绝，请保持精简。',
-      '不要把任务契约抄进笔记（以团队任务为准），只记进度、关键结论、决定、下一步、约束与用户要求、关键数据与引用（确切路径、命令、报错、数字），并区分已验证与推测。',
-    ].join('\n'),
+    description: '团队笔记，存在磁盘上，上下文压缩后不丢失。可写自己的笔记和 workspace.md，可读本团队所有笔记；单个文件有大小上限。',
     parameters: {
-      action: { type: 'string', enum: ['list', 'read', 'write', 'append', 'search'], required: true, description: '操作' },
-      path: { type: 'string', description: '笔记路径；省略表示自己的笔记' },
+      action: { type: 'string', enum: ['list', 'read', 'write', 'append', 'search'], required: true, description: 'list / read / write（全量重写）/ append / search（字面，区分大小写）' },
+      path: { type: 'string', description: '省略为自己的笔记；workspace.md 为共享笔记；<成员>.md 为队友笔记' },
       content: { type: 'string', description: 'write / append 的内容（Markdown）' },
       query: { type: 'string', description: 'search 的字面字符串（区分大小写）' },
     },
