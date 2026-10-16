@@ -16,6 +16,7 @@
         remindAtRatio: 0.37
         compactAtRatio: 0.45
         bucketStep: 0.03
+        fallbackBufferTokens: 16384
         contextTool: true
         notesMerge: false
         maxFileBytes: 10000

@@ -13,10 +13,12 @@ import z from '@deepseek-ai/schemastery'
 export interface BudgetConfig {
   /** 已用比例达到该值起提示（默认 0.37）。 */
   remindAtRatio: number
-  /** 已用比例达到该值时，插件对团队会话主动压缩（默认 0.45，方案 D1）。 */
+  /** 已用比例达到该值时成员换窗（默认 0.45）；队长只在此处与再后一档各提醒一次。 */
   compactAtRatio: number
-  /** 提示文本按该步长量化，只在跨档时变化（默认 0.03 ⇒ 37/40/43%）。 */
+  /** 提醒档位步长（默认 0.03 ⇒ 成员 37/40%，队长 45/48%）。 */
   bucketStep: number
+  /** 成员到 compactAtRatio 仍未写笔记时给的额外额度（token，默认 16384，同 Codex）。 */
+  fallbackBufferTokens: number
   /** 是否注册 context_remaining 工具（默认 true）。 */
   tool: boolean
 }
@@ -33,9 +35,9 @@ export interface NotesMergeConfig {
 export interface NotesOptions {
   /** 单个笔记文件的字节上限（默认 10000）。 */
   maxFileBytes: number
-  /** 笔记 hint 的字节上限，超过则整条不注入（默认 4000）。 */
+  /** 换窗交接的字节上限（默认 4000，也是最低值）；超限先少列最近笔记，再截断过长的团队名/任务标题。 */
   hintMaxBytes: number
-  /** hint 中列出的最近笔记数（默认 5）。 */
+  /** 交接中列出的最近改动笔记数（默认 5）。 */
   hintRecentNotes: number
 }
 
@@ -81,6 +83,7 @@ export interface Config {
   remindAtRatio: Volatile<number>
   compactAtRatio: Volatile<number>
   bucketStep: Volatile<number>
+  fallbackBufferTokens: Volatile<number>
   contextTool: Volatile<boolean>
   notesMerge: Volatile<boolean>
   mergeProvider: Volatile<string | undefined>
@@ -94,6 +97,9 @@ export interface Config {
   historyMaxListItems: Volatile<number>
 }
 
+/** 交接字节上限的默认值与最低值。 */
+export const HINT_MIN_BYTES = 4_000
+
 const ratio = (value: number) => z.number().min(0).max(1).step(0.01).default(value)
 
 export const Config = z.object({
@@ -102,16 +108,17 @@ export const Config = z.object({
   history: z.boolean().default(true).description('只读历史工具：读取本会话先前窗口中被压缩隐藏的原始消息').volatile(),
   teamHistory: z.boolean().default(true).description('团队信件回看工具 team_history：含已读和已作废的信').volatile(),
   remindAtRatio: ratio(0.37).description('上下文已用比例达到该值起提示').volatile(),
-  compactAtRatio: ratio(0.45).description('上下文已用比例达到该值时主动压缩（仅团队会话）').volatile(),
-  bucketStep: z.number().min(0.01).max(0.5).step(0.01).default(0.03).description('提示档位步长').volatile(),
+  compactAtRatio: ratio(0.45).description('上下文已用比例达到该值时成员换窗（仅团队会话；队长只提醒）').volatile(),
+  bucketStep: z.number().min(0.01).max(0.5).step(0.01).default(0.03).description('提醒档位步长').volatile(),
+  fallbackBufferTokens: z.natural().min(1).default(16_384).description('成员到换窗点仍未写笔记时的额外额度（token）').volatile(),
   contextTool: z.boolean().default(true).description('注册 context_remaining 工具').volatile(),
   notesMerge: z.boolean().default(false).description('成员任务完成时自动合并共享笔记；关闭时由队长维护 workspace.md').volatile(),
   mergeProvider: z.string().description('合并使用的模型提供方').volatile(),
   mergeModel: z.string().description('合并使用的模型').volatile(),
   mergeReasoningEffort: z.string().description('合并使用的推理强度').volatile(),
   maxFileBytes: z.natural().min(1).default(10_000).description('单个笔记文件的字节上限').volatile(),
-  hintMaxBytes: z.natural().min(1).default(4_000).description('窗口 hint 的字节上限').volatile(),
-  hintRecentNotes: z.natural().min(1).default(5).description('窗口 hint 列出的最近笔记数').volatile(),
+  hintMaxBytes: z.natural().min(HINT_MIN_BYTES).default(HINT_MIN_BYTES).description('换窗交接的字节上限（最低 4000）').volatile(),
+  hintRecentNotes: z.natural().min(1).default(5).description('换窗交接列出的最近改动笔记数').volatile(),
   historyMaxResults: z.natural().min(1).default(200).description('搜索结果上限').volatile(),
   historyMaxReadChars: z.natural().min(1).default(20_000).description('历史单次读取字符上限').volatile(),
   historyMaxListItems: z.natural().min(1).default(2_000).description('历史单次列出条目上限').volatile(),
@@ -140,6 +147,7 @@ export function toSettings(raw: Config | { [K in keyof Config]: unknown }): Sett
       remindAtRatio: config.remindAtRatio,
       compactAtRatio: config.compactAtRatio,
       bucketStep: config.bucketStep,
+      fallbackBufferTokens: config.fallbackBufferTokens,
       tool: config.contextTool,
     },
     notesMerge: {
@@ -150,7 +158,7 @@ export function toSettings(raw: Config | { [K in keyof Config]: unknown }): Sett
     },
     notesOptions: {
       maxFileBytes: config.maxFileBytes,
-      hintMaxBytes: config.hintMaxBytes,
+      hintMaxBytes: Math.max(HINT_MIN_BYTES, config.hintMaxBytes),
       hintRecentNotes: config.hintRecentNotes,
     },
     historyOptions: {

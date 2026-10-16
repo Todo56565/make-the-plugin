@@ -7,7 +7,7 @@ import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 
 export const BOOLEAN_FIELDS = ['notes', 'history', 'teamHistory', 'contextTool', 'notesMerge'] as const
 export const RATIO_FIELDS = ['remindAtRatio', 'compactAtRatio', 'bucketStep'] as const
-export const INTEGER_FIELDS = ['maxFileBytes', 'hintMaxBytes', 'hintRecentNotes', 'historyMaxResults', 'historyMaxReadChars', 'historyMaxListItems'] as const
+export const INTEGER_FIELDS = ['fallbackBufferTokens', 'maxFileBytes', 'hintMaxBytes', 'hintRecentNotes', 'historyMaxResults', 'historyMaxReadChars', 'historyMaxListItems'] as const
 export const MODEL_FIELDS = ['mergeProvider', 'mergeModel', 'mergeReasoningEffort'] as const
 export const TEXT_FIELDS = ['stateDir'] as const
 
@@ -43,14 +43,18 @@ function ratioField(field: string): SettingsFieldSpec {
   }
 }
 
-function integerField(field: string): SettingsFieldSpec {
+/** 整数字段的最低值（与插件 schema 一致）；未列出的为 1。 */
+export const INTEGER_MIN: Partial<Record<typeof INTEGER_FIELDS[number], number>> = { hintMaxBytes: 4000 }
+
+function integerField(field: typeof INTEGER_FIELDS[number]): SettingsFieldSpec {
   const base = settingsNumberField(field)
+  const min = INTEGER_MIN[field] ?? 1
   return {
     ...base,
     parse: (text) => {
       if (text.trim() === '') return { kind: 'clear' }
       const value = Number(text)
-      return Number.isInteger(value) && value >= 1 ? { kind: 'set', value } : undefined
+      return Number.isInteger(value) && value >= min ? { kind: 'set', value } : undefined
     },
   }
 }
