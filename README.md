@@ -6,25 +6,25 @@
 - **只作用于团队会话**（队长与成员），普通会话不受影响。
 - 插件整体由 DSH 插件管理面板启停。
 
-> 状态：**功能完成，待发布。** 全部能力已在真实 DSH `0.2.0-rc.2` + agent-teams `0.1.23` 团队会话中验证（PoC-1、4–9，见[设计文档 §6](docs/design/plugin-design.md)）。权威设计见 [`docs/design/plugin-design.md`](docs/design/plugin-design.md)。
+> 状态：**0.3.0（换窗交接）已实现，待发布**（`package.json` 仍为 0.2.0，版本号待确认后再升）。已在真实 DSH `0.2.0-rc.2` + agent-teams `0.1.23` 团队会话中以测试阈值验证，见 [`docs/design/0.3.0-handoff.md`](docs/design/0.3.0-handoff.md) §11。权威设计见 [`docs/design/plugin-design.md`](docs/design/plugin-design.md) 与 0.3.0 设计文档。
 
 ## 它解决什么
 
 团队成员长时间工作时上下文会被塞满，宿主压缩后成员常常丢掉进度。本插件：
 
-1. **提前提醒**：上下文占用达到 37% 起，每涨 3% 提示一次（37% / 40% / 43%），提示成员把关键进度写进笔记。
-2. **提前压缩**：达到 45% 时主动压缩团队会话，避免等到上下文溢出才压缩。
-3. **笔记**：每个成员一份独立笔记，团队共享一份 `workspace.md`；压缩后的新窗口会自动带上笔记指针和当前任务。
-4. **只读历史**：成员可以回看本会话先前窗口里被压缩隐藏的原始消息。
-
-实测（阈值调低到 3% / 5%）：成员在没有任何关于笔记或压缩的指令时，收到预算提示后会主动把数据写进笔记，压缩后任务结果完整正确。
+1. **提前提醒**：成员上下文占用 37%、40% 各提醒一次，提示把进度写进笔记；第一次提醒说明可以调用 `context_new_window` 自己换窗。
+2. **换窗不调模型**：成员到 45% 换到新窗口。换窗不发摘要请求，摘要位置换成一段【交接】：身份、任务与当前 `attempt_id`、笔记位置与更新状态、团队信件和上一窗口的回看指针。宿主约 80% 的自动压缩、手动 `/compact` 在团队会话里也用这段【交接】。
+3. **兜底**：成员到 45% 时本窗口还没写过自己的笔记，先注入一次强提示并多给 16384 token 额度：一次写完笔记后调用 `context_new_window`；额度用完照样换窗，【交接】里注明笔记未更新。
+4. **队长不强制**：队长只在 45%、48% 各提醒一次（不催促），不强制换窗。
+5. **笔记**：每个成员一份独立笔记，团队共享一份 `workspace.md`。
+6. **只读历史**：成员可以回看本会话先前窗口里被隐藏的原始消息，以及团队来往的信。
 
 ## 功能
 
 | 能力 | 开关 | 说明 |
 |---|---|---|
-| token budget | 无（插件本体） | 37% 起提示、每 3% 一档；45% 时主动压缩团队会话（宿主压缩服务的 `compactIfNeeded`）。阈值可配置 |
-| 团队笔记 | `notes`（默认开） | `team_notes` 工具（读、写、追加、搜索自己的笔记与 `workspace.md`）；系统提示中的笔记指针；每个新窗口开头的 hint（任务 id/标题 + 最近笔记元数据，为窗口开始时的快照） |
+| 换窗交接 | 无（插件本体） | 成员 37% / 40% 提醒，45% 换窗（未写笔记先兜底）；队长 45% / 48% 提醒。换窗经宿主压缩服务的 `compactIfNeeded`，接管 `summarize()` 返回【交接】，零模型请求。`context_new_window` 工具（无参数，随时可调；本窗口没写笔记时拒绝一次）。常驻说明只讲规则，第一个窗口注入一次精简【交接】 |
+| 团队笔记 | `notes`（默认开） | `team_notes` 工具（读、写、追加、搜索自己的笔记与 `workspace.md`）；【交接】里的笔记指针与元数据 |
 | 历史工具 | `history`（默认开） | `history_list_windows` / `history_list_items` / `history_read_item` / `history_search_contents`；窗口编号 `w1`、`w2`…，只读，不落盘 |
 | 团队信件回看 | `teamHistory`（默认开） | `team_history` 工具：回看团队信件，含已读和已作废的信。队长看全队（包括成员之间的信），成员看发给自己和自己发出的信。只读，不落盘 |
 | 剩余上下文 | `contextTool`（默认开） | `context_remaining` 工具：返回已用比例与距离主动压缩的余量 |
@@ -67,21 +67,22 @@ dsh --profile <profile>             # 或 dsh web --profile <profile>
 |---|---|---|
 | `stateDir` | `.agent-teams` | 须与 agent-teams 的 `stateDir` 一致。放在 `.agent-teams` 之外时，笔记可能被质量闸门计入交付审计（启动时会告警） |
 | `notes` / `history` / `teamHistory` / `contextTool` | `true` | 四个能力开关 |
-| `remindAtRatio` | `0.37` | 开始提示的占用比例 |
-| `compactAtRatio` | `0.45` | 主动压缩的占用比例（仅团队会话） |
-| `bucketStep` | `0.03` | 提示档位步长 |
+| `remindAtRatio` | `0.37` | 成员开始提醒的占用比例（最低 `0.01`，须小于 `compactAtRatio`） |
+| `compactAtRatio` | `0.45` | 成员换窗的占用比例；队长在此处与再后一个步长各提醒一次（最低 `0.03`） |
+| `bucketStep` | `0.03` | 提醒档位步长。成员档位 = `remindAt + k × step` 且小于 `compactAt`，不整除时去掉最后一档（只剩一档时保留）：默认 37% / 40% |
+| `fallbackBufferTokens` | `16384` | 成员到换窗点仍未写笔记时的额外额度（token） |
 | `notesMerge` | `false` | 任务完成时自动合并笔记 |
 | `mergeProvider` / `mergeModel` / `mergeReasoningEffort` | 空 | 合并所用模型；`notesMerge` 开启且选了模型才会合并 |
 | `maxFileBytes` | `10000` | 单个笔记文件字节上限 |
-| `hintMaxBytes` / `hintRecentNotes` | `4000` / `5` | 窗口 hint 的字节上限与列出的最近笔记数 |
+| `hintMaxBytes` / `hintRecentNotes` | `4000` / `5` | 【交接】的字节上限（最低 4000）与列出的最近改动笔记数。超限先少列最近笔记，再截断过长的团队名 / 任务标题；身份、任务、自己的笔记、上一窗口永远保留 |
 | `historyMaxResults` / `historyMaxReadChars` / `historyMaxListItems` | `200` / `20000` / `2000` | 历史工具单次返回上限 |
 
 ## 使用
 
 不需要额外操作。建团队、派任务即可：
 
-- 成员会在上下文里看到以【上下文预算】开头的提示，并按提示写笔记。
-- 压缩后，新窗口开头会有【团队上下文】段落，列出当前任务和最近笔记；成员可用 `team_notes` 读回笔记，或用 `history_*` 工具查原文。
+- 成员会在上下文里看到以【上下文预算】开头的提示，按提示写笔记，可以调用 `context_new_window` 自己换窗；到 45% 还没写笔记会看到【上下文已用尽】提示。
+- 换窗后，新窗口开头是【交接】（在摘要位置），列出身份、任务（含 `attempt_id`）、笔记和回看工具；成员用 `team_notes` 读回笔记，缺的用 `history_*` / `team_history` 查原文。
 - 想让队长统一整理共享笔记，保持 `notesMerge` 关闭，在任务说明里让队长维护 `workspace.md`；想自动合并，打开 `notesMerge` 并选一个模型。
 
 成员工具策略：agent-teams 允许部署方在它的配置里声明 `toolPolicies`，再给成员挑一个策略。策略若写了 `allow`，成员就**只看得到列出的工具**（agent-teams 会自动补上它自己的 4 个协调工具，但不会补本插件的）。这时要把本插件的工具名一起列进去，否则成员看不到它们：
@@ -89,10 +90,10 @@ dsh --profile <profile>             # 或 dsh web --profile <profile>
 ```yaml
 toolPolicies:
   researcher:
-    allow: [read, glob, grep, team_notes, team_history, context_remaining, history_list_windows, history_list_items, history_read_item, history_search_contents]
+    allow: [read, glob, grep, team_notes, team_history, context_new_window, context_remaining, history_list_windows, history_list_items, history_read_item, history_search_contents]
 ```
 
-只用 `deny`、或成员没选策略时，不需要处理。
+只用 `deny`、或成员没选策略时，不需要处理。成员看不到 `team_notes` 时，到换窗点不兜底，直接换窗。
 
 运行时文件：笔记写在工作区 `.agent-teams/.context/notes/` 下（agent-teams 默认把 `.agent-teams` 排除在交付审计之外）；历史工具只读会话文件，不另存数据。
 
@@ -127,18 +128,20 @@ make-the-plugin/
 │   ├── index.ts                   入口：name / inject / Config / apply()
 │   ├── config.ts                  配置 schema（Schemastery）与默认值
 │   ├── team/                      团队身份解析、team.json 缓存读取
-│   ├── window/                    窗口计数（session projection）
-│   ├── budget/                    占用计算、37/40/43 提示、45% 压缩（D1）
-│   ├── prompt/                    稳定的 system prompt 指针 section
-│   ├── notes/                     笔记存储、team_notes 工具、hint、可选自动合并
+│   ├── window/                    窗口投影（history 口径）、换窗状态与决策、context_new_window 工具
+│   ├── budget/                    占用计算、提醒与兜底文本、换窗压缩与 summarize() 接管
+│   ├── prompt/                    常驻规则 section、【交接】模板（完整版 / w1 精简版）
+│   ├── notes/                     笔记存储、team_notes 工具、可选自动合并
 │   ├── history/                   persistence 只读读取、窗口索引、history 工具
 │   └── team-history/              团队信箱只读视图与 team_history 工具
 ├── test/                        单元测试（node --test），目录结构与 src/ 对应
 ├── docs/
 │   ├── design/                    设计文档
 │   │   ├── plugin-design.md         权威设计规格（实现以此为准）
+│   │   ├── 0.3.0-handoff.md         0.3.0 换窗交接设计（已实现，待发布）
 │   │   └── 临时记录.md              设计讨论记录（只保留当前结论）
 │   ├── research/
+│   │   ├── 0.3.0-poc-results.md     0.3.0 设计 PoC 实测
 │   │   └── context-compare/         Codex 与 DSH 上下文机制取证、社区插件调研、探针脚本
 │   └── reference/                 外部参考资料（Codex 上下文压缩文章）
 ├── .agent-teams/                DSH 团队运行留下的归档（由 dsh-agent-teams 写入，勿手改）
