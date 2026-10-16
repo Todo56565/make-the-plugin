@@ -90,18 +90,22 @@ export function freshnessOf(input: {
 }
 
 /**
- * 交接里「你的笔记」的状态（§9a-4、§9a-11）。`fallbackStartedAt` 为本窗口进入兜底的时间，没进兜底为 undefined：
+ * 交接里「你的笔记」的状态（§9a-4、§9a-11）。`fallbackStartedAt` 为本窗口进入兜底的时间，没进兜底为 undefined；
+ * `reason` 为插件换窗原因，宿主自动压缩（约 80%）为 undefined。
+ * 原则：只有模型写完笔记后自己用 context_new_window 声明换窗，才写纯「更新」（2026-10-17 00:16）。
  * - 本窗口没写 ⇒ stale
- * - 没进兜底（到换窗点前调用 context_new_window、宿主自动压缩等）⇒ updated
- * - 兜底开始后写过 ⇒ updated；被额度强制换窗 ⇒ incomplete
- * - 只在兜底开始前写过 ⇒ outdated（可能未含最新进展）
+ * - 没进兜底：调用 context_new_window（成员到点前主动换、队长主动换，都已过「没写拒绝一次」）⇒ updated；
+ *   其余（宿主自动压缩，含队长；no-notes）⇒ outdated（可能未含最新进展）
+ * - 兜底开始后写过：调用 context_new_window ⇒ updated；额度用完或兜底中被宿主压缩 ⇒ incomplete
+ * - 只在兜底开始前写过 ⇒ outdated
  */
 export function ownNoteStateOf(freshness: Freshness, fallbackStartedAt: number | undefined, reason: SwitchReason | undefined): OwnNoteState {
   if (!freshness.fresh || freshness.at === undefined) return { kind: 'stale' }
   const at = freshness.at
-  if (fallbackStartedAt === undefined) return { kind: 'updated', at }
+  const declared = reason === 'tool'
+  if (fallbackStartedAt === undefined) return declared ? { kind: 'updated', at } : { kind: 'outdated', at }
   if (at < fallbackStartedAt) return { kind: 'outdated', at }
-  return reason === 'buffer' ? { kind: 'incomplete', at } : { kind: 'updated', at }
+  return declared ? { kind: 'updated', at } : { kind: 'incomplete', at }
 }
 
 export type Decision =
