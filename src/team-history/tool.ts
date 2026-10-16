@@ -36,10 +36,12 @@ function pad(value: number): string {
   return String(value).padStart(2, '0')
 }
 
-/** 本地时间 `YYYY-MM-DD HH:mm:ss`。 */
+/** 宿主进程本地时间 `YYYY-MM-DD HH:mm:ss±HH:MM`（带时区，避免模型把 UTC 当成用户时间）。 */
 export function formatTime(ts: number): string {
   const d = new Date(ts)
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+  const offset = -d.getTimezoneOffset()
+  const zone = `${offset >= 0 ? '+' : '-'}${pad(Math.floor(Math.abs(offset) / 60))}:${pad(Math.abs(offset) % 60)}`
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}${zone}`
 }
 
 function header(m: MailMessage): string {

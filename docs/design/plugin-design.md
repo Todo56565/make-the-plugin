@@ -362,7 +362,7 @@ section / context 的 `text()` 对无团队会话返回空串；队长建团后�
 | 与压缩交互 | 纯拉取，压缩无影响；队长中途的纠正（steer 投递的信）压缩后仍可从信箱读回原文 |
 | 失败回退 | 无团队身份 ⇒ 说明性错误；信箱目录不存在 ⇒ 「没有信件」 |
 | 实现 | `src/team-history/{mailbox,tool}.ts`，测试 `test/team-history/` |
-| 待 PoC | 真实团队会话中队长读到成员之间的信、成员读到已读的信；信件字段与 agent-teams 0.1.23 实际写入一致 |
+| PoC | **通过**（2026-10-16，团队 th-test，DSH 0.2.0-rc.2 + agent-teams 0.1.23）：alice→bob 发暗号、bob 回信；bob 的 `read` 看到 2 封（收到的已读、自己发出的已投递），看不到 alice/bob 发给队长的信；队长 `list` 汇总 4 组、`search KIWI` 命中 4 封（含成员之间的 2 封），状态均为已读。之后时间加上时区后缀 |
 
 **附：agent-teams 的信件投递（「插话」）**：`agent_teams_send_message` 发给运行中的收件人时走宿主 `steer`（`tools.ts:2149`、`:2260`；队长侧 `members.ts:200`），在其下一个步骤边界插入，同一轮次内生效、不打断正在进行的模型输出与工具调用（`agent-loop/src/agent.ts:167`、`agent/src/runtime-types.ts:225-229`）；空闲则唤醒；都不行时只落盘，调度器在下一个状态边界优先重投（`scheduler.ts:323-340`）。派任务走 `queue`（新轮次）。人只能经队长转发给成员。
 
