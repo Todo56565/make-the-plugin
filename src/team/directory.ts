@@ -56,6 +56,12 @@ export class TeamDirectory {
     return identity
   }
 
+  /** 丢弃该会话的缓存后重新读盘（换窗交接要最新的任务状态）。 */
+  reload(agent: AgentLike): TeamIdentity | undefined {
+    this.entries.delete(agent.id)
+    return this.identityOf(agent, true)
+  }
+
   /** 团队状态可能已变化：丢弃全部缓存。 */
   invalidate(): void {
     this.entries.clear()

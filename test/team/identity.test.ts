@@ -80,3 +80,15 @@ test('TeamDirectory：否定结果短时缓存，事件后失效', () => {
   now = 1_000_000
   assert.equal(dir.identityOf(agent)?.agentKey, 'Bob', '肯定结果不过期')
 })
+
+test('coerceTeam 读出任务的 attempt_id（换窗交接要带）', () => {
+  const t = coerceTeam({
+    captainSessionId: 'c', members: [],
+    tasks: [
+      { id: 't1', subject: 's', status: 'in_progress', assignee: 'bob', attemptId: 'a-1' },
+      { id: 't2', subject: 's', status: 'pending', attemptId: '' },
+    ],
+  }, 'x')!
+  assert.equal(t.tasks[0]!.attemptId, 'a-1')
+  assert.equal('attemptId' in t.tasks[1]!, false)
+})

@@ -17,12 +17,14 @@ export interface TeamMemberInfo {
   name: string
 }
 
-/** 本插件用到的任务字段（用于 notes hint）。 */
+/** 本插件用到的任务字段（用于换窗交接）。 */
 export interface TeamTaskInfo {
   id: string
   subject: string
   status: string
   assignee?: string
+  /** 当前认领 / 进行中这次执行的 attempt_id（成员更新任务时必须带上）。 */
+  attemptId?: string
 }
 
 /** 本插件用到的团队字段。 */
@@ -76,6 +78,7 @@ export function coerceTeam(value: unknown, dirId: string): TeamInfo | undefined 
       subject: raw.subject,
       status: typeof raw.status === 'string' ? raw.status : 'unknown',
       ...(typeof raw.assignee === 'string' ? { assignee: raw.assignee } : {}),
+      ...(typeof raw.attemptId === 'string' && raw.attemptId !== '' ? { attemptId: raw.attemptId } : {}),
     })
   }
   return {

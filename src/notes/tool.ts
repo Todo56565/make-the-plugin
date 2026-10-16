@@ -18,8 +18,8 @@ export interface NotesToolDeps {
   storeFor: (identity: TeamIdentity) => NotesStore
   /** search 结果上限。 */
   maxResults: number
-  /** 写入后回调（用于失效 hint 等）。 */
-  onWrite?: (identity: TeamIdentity, meta: NoteMeta) => void
+  /** 写入成功后回调（记录本窗口写过自己的笔记，设计 0.3.0 §9a-7）。 */
+  onWrite?: (agent: Agent, identity: TeamIdentity, meta: NoteMeta) => void
 }
 
 /** 按 stateRoot 复用 NotesStore（同一工作区共用一把进程内锁）。 */
@@ -112,7 +112,7 @@ export function registerTeamNotesTool(ctx: Context, deps: NotesToolDeps): () => 
       const identity = deps.identityOf(agent)
       if (identity === undefined) throw new Error('当前会话不属于任何 AgentTeams 团队，team_notes 不可用')
       const store = deps.storeFor(identity)
-      const text = await runTeamNotes(args, identity, store, deps.maxResults, meta => deps.onWrite?.(identity, meta))
+      const text = await runTeamNotes(args, identity, store, deps.maxResults, meta => deps.onWrite?.(agent, identity, meta))
       return { text }
     },
   }))
