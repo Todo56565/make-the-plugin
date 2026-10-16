@@ -19,7 +19,7 @@ export type TokenBudgetSettingsProps = PropsRuntime<'plugins.row.config'> & Prop
 type T = (key: TokenBudgetKey, params?: Record<string, string>) => string
 
 function SwitchRow({ name, state, t, disabled, edit }: {
-  name: 'notes' | 'history' | 'contextTool' | 'notesMerge'
+  name: 'notes' | 'history' | 'teamHistory' | 'contextTool' | 'notesMerge'
   state: TokenBudgetFormState; t: T; disabled: boolean; edit: (field: string, text: string) => void
 }) {
   const hint = `${name}Hint` as TokenBudgetKey
@@ -83,6 +83,7 @@ export function TokenBudgetSettings(props: TokenBudgetSettingsProps) {
       <h4 className={css.heading}>{t('sectionSwitches')}</h4>
       <SwitchRow name="notes" state={state} t={t} disabled={disabled} edit={edit} />
       <SwitchRow name="history" state={state} t={t} disabled={disabled} edit={edit} />
+      <SwitchRow name="teamHistory" state={state} t={t} disabled={disabled} edit={edit} />
       <SwitchRow name="contextTool" state={state} t={t} disabled={disabled} edit={edit} />
     </div>
     <div className={css.section}>

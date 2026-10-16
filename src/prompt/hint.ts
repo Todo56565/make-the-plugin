@@ -39,6 +39,7 @@ export interface HintInput {
   identity: TeamIdentity
   notes: boolean
   history: boolean
+  teamHistory?: boolean
   metas: readonly NoteMeta[]
   recentNotes: number
   maxBytes: number
@@ -74,6 +75,7 @@ export function hintText(input: HintInput): string {
     lines.push('需要时用 team_notes 读取。')
   }
   if (input.history) lines.push('早先窗口中被压缩的原始消息可用 history_search_contents / history_list_items / history_read_item 只读回看。')
+  if (input.teamHistory === true) lines.push('团队来往的信（含已读）可用 team_history 回看。')
   const text = lines.join('\n')
   return Buffer.byteLength(text) > input.maxBytes ? '' : text
 }

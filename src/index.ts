@@ -5,6 +5,7 @@
  * - token budget：37% 起按档提示（runtime context），45% 主动压缩（方案 D1）
  * - notes：成员笔记与共享 workspace.md（开关 `notes`）
  * - history：只读历史工具（开关 `history`）
+ * - teamHistory：团队信件回看工具 team_history（开关 `teamHistory`）
  *
  * 权威设计：docs/design/plugin-design.md
  *
@@ -31,6 +32,7 @@ import { stateRootOf } from './team/identity.ts'
 import { FrozenText, NOTES_SECTION_ORDER, notesSectionText } from './prompt/notes-section.ts'
 import { HistorySource } from './history/source.ts'
 import { registerHistoryTools } from './history/tools.ts'
+import { registerTeamHistoryTool } from './team-history/tool.ts'
 import { HINT_CONTEXT_ORDER, WindowHintCache, hintText, listNoteMetasSync } from './prompt/hint.ts'
 
 export { Config }
@@ -55,7 +57,7 @@ export function apply(ctx: Context, raw: Config): void {
   const logger = ctx.logger('dsh-token-budget')
   for (const problem of validateConfig(config)) logger.warn(problem)
   // 设置页保存 ⇒ 宿主 volatile HMR，不重启插件：原地刷新配置。
-  // 能力开关（notes / history / contextTool）也即时生效：按开关注册或注销对应工具与 section。
+  // 能力开关（notes / history / teamHistory / contextTool）也即时生效：按开关注册或注销对应工具与 section。
   const switches: Array<() => void> = []
   ctx.on('loader/volatile-update', () => {
     refreshSettings(config, raw)
@@ -141,6 +143,7 @@ export function apply(ctx: Context, raw: Config): void {
         identity,
         notes: config.notes,
         history: config.history,
+        teamHistory: config.teamHistory,
         metas: config.notes ? listNoteMetasSync(identity) : [],
         recentNotes: config.notesOptions.hintRecentNotes,
         maxBytes: config.notesOptions.hintMaxBytes,
@@ -186,6 +189,12 @@ export function apply(ctx: Context, raw: Config): void {
   switchable('dsh-token-budget: history tools', () => config.history, () => registerHistoryTools(ctx, {
     isTeamAgent: agent => teams.identityOf(agent, true) !== undefined,
     load: (agent, signal) => historySource.load(agent.session.id, signal, () => ctx.sessions.flush(agent.session)),
+    limits: () => config.historyOptions,
+  }))
+
+  // ── team_history：团队信件回看（设计 §4.3；开关 teamHistory，即时生效）──
+  switchable('dsh-token-budget: team_history tool', () => config.teamHistory, () => registerTeamHistoryTool(ctx, {
+    identityOf: agent => teams.identityOf(agent, true),
     limits: () => config.historyOptions,
   }))
 

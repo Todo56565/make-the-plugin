@@ -12,6 +12,7 @@
         stateDir: .agent-teams
         notes: true
         history: true
+        teamHistory: true
         remindAtRatio: 0.37
         compactAtRatio: 0.45
         bucketStep: 0.03

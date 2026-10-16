@@ -2,7 +2,7 @@
  * dsh-token-budget 配置 schema 与默认值。
  *
  * 权威定义见 docs/design/plugin-design.md §2.2。
- * 插件整体由 DSH 插件管理面板启停；这里只有两个能力开关（notes / history），
+ * 插件整体由 DSH 插件管理面板启停；能力开关为 notes / history / teamHistory / contextTool，
  * token budget 是插件本体，没有开关。
  */
 
@@ -53,6 +53,8 @@ export interface Settings {
   stateDir: string
   notes: boolean
   history: boolean
+  /** 团队信件回看工具 team_history（默认开启）。 */
+  teamHistory: boolean
   budget: BudgetConfig
   notesMerge: NotesMergeConfig
   notesOptions: NotesOptions
@@ -74,6 +76,8 @@ export interface Config {
   notes: Volatile<boolean>
   /** 只读历史工具（默认开启）。 */
   history: Volatile<boolean>
+  /** 团队信件回看工具（默认开启）。 */
+  teamHistory: Volatile<boolean>
   remindAtRatio: Volatile<number>
   compactAtRatio: Volatile<number>
   bucketStep: Volatile<number>
@@ -96,6 +100,7 @@ export const Config = z.object({
   stateDir: z.string().default('.agent-teams').description('agent-teams 状态目录名，须与 agent-teams 行的 stateDir 一致').volatile(),
   notes: z.boolean().default(true).description('成员笔记与共享 workspace.md').volatile(),
   history: z.boolean().default(true).description('只读历史工具：读取本会话先前窗口中被压缩隐藏的原始消息').volatile(),
+  teamHistory: z.boolean().default(true).description('团队信件回看工具 team_history：含已读和已作废的信').volatile(),
   remindAtRatio: ratio(0.37).description('上下文已用比例达到该值起提示').volatile(),
   compactAtRatio: ratio(0.45).description('上下文已用比例达到该值时主动压缩（仅团队会话）').volatile(),
   bucketStep: z.number().min(0.01).max(0.5).step(0.01).default(0.03).description('提示档位步长').volatile(),
@@ -130,6 +135,7 @@ export function toSettings(raw: Config | { [K in keyof Config]: unknown }): Sett
     stateDir: config.stateDir,
     notes: config.notes,
     history: config.history,
+    teamHistory: config.teamHistory,
     budget: {
       remindAtRatio: config.remindAtRatio,
       compactAtRatio: config.compactAtRatio,
@@ -161,6 +167,7 @@ export function refreshSettings(target: Settings, raw: Config): void {
   target.stateDir = next.stateDir
   target.notes = next.notes
   target.history = next.history
+  target.teamHistory = next.teamHistory
   Object.assign(target.budget, next.budget)
   target.notesMerge = next.notesMerge
   Object.assign(target.notesOptions, next.notesOptions)

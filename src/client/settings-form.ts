@@ -5,7 +5,7 @@ import {
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 
-export const BOOLEAN_FIELDS = ['notes', 'history', 'contextTool', 'notesMerge'] as const
+export const BOOLEAN_FIELDS = ['notes', 'history', 'teamHistory', 'contextTool', 'notesMerge'] as const
 export const RATIO_FIELDS = ['remindAtRatio', 'compactAtRatio', 'bucketStep'] as const
 export const INTEGER_FIELDS = ['maxFileBytes', 'hintMaxBytes', 'hintRecentNotes', 'historyMaxResults', 'historyMaxReadChars', 'historyMaxListItems'] as const
 export const MODEL_FIELDS = ['mergeProvider', 'mergeModel', 'mergeReasoningEffort'] as const

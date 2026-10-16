@@ -43,7 +43,7 @@
 
 ### 1.2 硬边界（已确认的用户决定，沿用 `临时记录.md` §二）
 
-- **history 只读调用者自己的会话**（§4.4），成员不读队长继承来的上下文；团队级历史（`team.json` + 信箱，§4.3）属后续版本，届时作用域同样不超过当前团队：不碰 `archive/`，不跨实例
+- **history 只读调用者自己的会话**（§4.4），成员不读队长继承来的上下文；团队信件回看（§4.3，0.2.0）只读当前团队信箱：不碰 `archive/`，不跨实例
 - **主会话不查看子会话预算**：只保证子会话静默压缩后仍能干活
 - **笔记按工作区/团队存**（跨会话）；**窗口编号按 session 存**（不跨聊天界面）；两者键不同
 - **检索语义 = 区分大小写的字面包含**，不引入向量检索（Codex 两套检索同为 `.contains()`：`codex-rs/ext/memories/src/local/search.rs:288`、`codex-rs/ext/history-notes/src/tools.rs:181`）【源码】
@@ -74,6 +74,7 @@
         stateDir: .agent-teams      # 必须与 agent-teams 行的 stateDir 一致
         notes: true
         history: true
+        teamHistory: true           # 0.2.0：团队信件回看（§4.3）
         remindAtRatio: 0.37         # 上下文已用 37% 起提示
         compactAtRatio: 0.45        # 已用 45% 强制换窗压缩（落点见 §2.4）
         bucketStep: 0.03
@@ -142,7 +143,7 @@ interface Config {
 }
 ```
 
-- **实现更正（2026-10-14）：配置改为扁平、全部即时字段。** DSH 设置表单只投影 `.volatile()` 字段（`settings/src/schema.ts` `volatileForm`），共享表单模型 `SettingsFormModel` 只按顶层字段读写（路径 `[field]`）。所以对外配置为一层：`remindAtRatio / compactAtRatio / bucketStep / contextTool / notesMerge / mergeProvider / mergeModel / mergeReasoningEffort / maxFileBytes / hintMaxBytes / hintRecentNotes / historyMaxResults / historyMaxReadChars / historyMaxListItems`，插件内部换算回上面的分组结构（`src/config.ts` `toSettings`）。保存后宿主经 volatile HMR 更新，数值与合并开关/模型即时生效；`notes / history / contextTool` 开关也即时生效（2026-10-15 改：volatile 更新时注册或注销对应工具与 section，见 PoC-7）。设置页由插件 client 入口注册到 `plugins.row.config`（键 `dsh-token-budget#dsh-token-budget`），模型为级联下拉，选项来自 `ctx.remote.session.modelCatalog()`。已在真实 DSH 0.2.0-rc.2 web 中验证：页面出现、下拉有选项、保存写入 profile 的 `cordis.patch.yml`。
+- **实现更正（2026-10-14）：配置改为扁平、全部即时字段。** DSH 设置表单只投影 `.volatile()` 字段（`settings/src/schema.ts` `volatileForm`），共享表单模型 `SettingsFormModel` 只按顶层字段读写（路径 `[field]`）。所以对外配置为一层（另有开关 `notes / history / teamHistory`，`teamHistory` 为 0.2.0 新增）：`remindAtRatio / compactAtRatio / bucketStep / contextTool / notesMerge / mergeProvider / mergeModel / mergeReasoningEffort / maxFileBytes / hintMaxBytes / hintRecentNotes / historyMaxResults / historyMaxReadChars / historyMaxListItems`，插件内部换算回上面的分组结构（`src/config.ts` `toSettings`）。保存后宿主经 volatile HMR 更新，数值与合并开关/模型即时生效；`notes / history / contextTool` 开关也即时生效（2026-10-15 改：volatile 更新时注册或注销对应工具与 section，见 PoC-7）。设置页由插件 client 入口注册到 `plugins.row.config`（键 `dsh-token-budget#dsh-token-budget`），模型为级联下拉，选项来自 `ctx.remote.session.modelCatalog()`。已在真实 DSH 0.2.0-rc.2 web 中验证：页面出现、下拉有选项、保存写入 profile 的 `cordis.patch.yml`。
 - **开关只决定「是否注册」**：启动时按开关注册，设置页保存（volatile 更新）时注册或注销对应工具与 section（PoC-7）；运行中**不按团队状态增删工具或 section**。理由：工具声明变化会迫使新 request series、头部合并（`packages/core/agent-loop/src/agent.ts:416-421` `startsSeries: … || (preparedCall?.toolUpdate === undefined && this.toolsChanged(assembly.tools))`）。【源码】
 - 百分比的分母统一为路由容量 `W`（`contextPressure.contextWindow`），分子 `P` 与 compaction-basic 同源（`tokenMeter`）。compaction-basic 的 `thresholdRatio` 也是 `W` 的比例（`compaction-basic/README.md:62`），口径一致。
 - D1 下宿主 compaction-basic 的 `thresholdRatio` 保持默认（约 80%）作兜底，`临时记录.md` §十四 的 0.5 测试覆盖已回退。
@@ -273,7 +274,7 @@ agent-teams 没有公共 API，本插件**按其磁盘格式自行解析**（只
 - 队长通常是**先普通对话、后来才建团队**的顶层会话；
 - 成员在 `agent/created` 时未必已写进 `team.json`——agent-teams 自己靠进程内的 `isPendingMember(agent)` 补这个时间差（`capabilities.ts:68`，来自 `registerAgentTeamsTools` 的运行时状态，`index.ts:96-100`），本插件拿不到这个内部状态。
 
-因此 **v1 不做 `restrict`**：本插件工具在所有会话可见，无团队时调用返回「当前会话不属于任何 AgentTeams 团队」。代价是非团队会话的工具目录多出本插件的 6 个工具 schema（`team_notes`、`context_remaining`、4 个 `history_*`）。PoC-3 已证实成员在 `agent/created` 时**不在** `team.json` 中（agent-teams 在 `startContinuable` 返回后才写 `member.id`，`members.ts:942`），所以维持不做 `restrict`；将来要收紧，需另找身份时序（见后续版本）。
+因此 **v1 不做 `restrict`**：本插件工具在所有会话可见，无团队时调用返回「当前会话不属于任何 AgentTeams 团队」。代价是非团队会话的工具目录多出本插件的 7 个工具 schema（`team_notes`、`team_history`、`context_remaining`、4 个 `history_*`）。PoC-3 已证实成员在 `agent/created` 时**不在** `team.json` 中（agent-teams 在 `startContinuable` 返回后才写 `member.id`，`members.ts:942`），所以维持不做 `restrict`；将来要收紧，需另找身份时序（见后续版本）。
 
 section / context 的 `text()` 对无团队会话返回空串；队长建团后文本变化**一次**（一次 head 改写或一次快照追加），属可接受代价，计入 §7-1 两个分支的成本。
 
@@ -342,22 +343,28 @@ section / context 的 `text()` 对无团队会话返回空串；队长建团后�
 
 **参照对象要分清**：Codex `notes.*` 是**单 rollout 内**跨窗口私有笔记（`tools.rs:28`「survive context-window transitions within this rollout」）；**跨会话**的是另一套 `memories`。本设计的分层借 memories（每实体一份 + 合并层 + 双重硬上限），注入形态借 notes hint（只给指针）。合并层 `workspace.md` 的**自动合并**（Codex phase2 consolidation）**v1 不做**，由模型显式维护；是否做见 §7-3。
 
-### 4.3 团队级历史 team_history（后续版本，v1 不做）
+### 4.3 团队信件回看 team_history（0.2.0）
 
-> **状态（用户 2026-10-16）**：v1（0.1.0）不实现，移到后续版本。v1 的 `history` 开关只管 §4.4 的本会话窗口原文。下表为最初草案，实现前需重新讨论（与 `agent_teams_status`、信箱投递、§4.4 的重叠部分待定）。
+> **状态**：v1（0.1.0）不含。用户 2026-10-16 确认 0.2.0 只做真正的增量：**队长能看到成员之间的信，大家能回查已读的信**。不做原草案里的任务列表/契约读取（`agent_teams_status` 已提供），也不做旧 attempt 结果与重派前会话的保存（不必要，且需要插件另写账本）。
 
+**为什么需要**：agent-teams 每个收件人一个信箱 `inbox/<收件人>.jsonl`（队长为 `captain`，`state.ts:6`、`:436`），已读的信留在文件里（`readAt`），作废的信标 `discardedAt`。但它的工具只展示未读：`agent_teams_status` 给队长自己的未读、各成员信箱的未读条数与最新一条前 200 字，给成员最多 10 条自己的未读。读过的信只留在收件人会话的上下文里，压缩后只剩摘要；成员之间的信队长根本看不到。
 
 | 项 | 设计 |
 |---|---|
-| 数据源 | 当前团队的 `team.json` 与 `inbox/*.jsonl`；**不读** `archive/`、不读其他团队 |
-| 工具 | **一个**工具 `team_history`，`action ∈ {list, read, search}`：`list` = 任务列表（id/subject/status/assignee/attempt）+ 各信箱条数；`read` = 单个任务的契约字段（`objective/inScope/acceptance/deliverables`，`types.ts:195-201`）与 `output`、或某信箱第 N..M 条；`search` = 在任务字段与信箱 `content` 上做**区分大小写字面包含** |
-| 分页上限 | 结果 ≤ `maxResults`（200）、单次读 ≤ `maxReadChars`（20,000 字符）、列表 ≤ `maxListItems`（2,000）——数值沿用 `临时记录.md` §八 6.3 记录的 Codex 上限，单位从 token 改为字符（本地无分词器）【推断】 |
-| 读一致性 | `team.json` 与信箱都由 agent-teams 以 `atomicWriteText` 整文件原子替换（`state.ts:294`、`:447`、`:514-542`）⇒ 无锁读取只会读到某个完整版本，不会读到半截 |
-| 信箱字段 | `{id, from, to, content, ts, deliveredAt?, readAt?, taskId?, attemptId?, discardedAt?…}`（`types.ts:310-333`）；`discardedAt` 存在的条目默认不返回 |
-| 已知缺口 | 重试会清空上一 attempt 的 `output/verdict/findings/changedPaths/acceptanceResults/commandsRun`（`state.ts:172-179` `clearAttemptResult`）⇒ history **拿不到旧 attempt 的结果**，只能从信箱回报里找 |
-| 作用域 | 团队级（解析见 §4.0.1）；成员与队长读同一份 |
-| 与压缩交互 | 纯拉取，无注入，压缩无影响；能力说明放在 notes 同一条稳定 section 里（或 history 自己的稳定 section，二者择一以免多一个 section） |
-| 失败回退 | `team.json` 解析失败 ⇒ 返回错误与路径，不抛到组装层；单个信箱坏行 ⇒ 跳过并在结果里计数 |
+| 数据源 | 当前团队 `inbox/*.jsonl`，只读；不读 `archive/`、不跨团队。文件由 agent-teams 整文件原子替换，无锁读取只会读到完整版本；坏行跳过并在结果里计数 |
+| 可见范围 | 队长：全队全部信件；成员：`to` 或 `from` 是自己的信（agent-teams 只给成员看自己的信箱，本插件另加自己发出的信）。成员看不到队友之间、队友与队长之间的信 |
+| 工具 | **一个**工具 `team_history`，`action ∈ {list, read, search}`。`list` = 按「发信人 → 收信人」汇总封数、未读数、最近时间；`read` = 按时间正序（`recent_first` 倒序）分页读正文，`offset`/`limit`，或 `message_id` 读单封全文；`search` = 正文字面包含、区分大小写，返回片段。三者都可按 `from` / `to` / `task_id`（匹配 `taskId` 或 `sourceTaskId`）过滤；默认不含作废信，`include_discarded` 打开 |
+| 信件状态 | 已作废（`discardedAt`）/ 已读（`readAt`）/ 已投递（`deliveredAt`）/ 未读 |
+| 上限 | 复用 `historyMaxResults`（搜索结果）、`historyMaxReadChars`（单次读取字符，超出截断并给下一页）、`historyMaxListItems`（汇总组数、单页封数） |
+| 开关 | `teamHistory`，默认开，设置页即时生效（与其他能力开关同法） |
+| hint | 开启时窗口 hint 末尾加一句「团队来往的信（含已读）可用 team_history 回看」 |
+| 存储 | 无。不写账本，不复制信件 |
+| 与压缩交互 | 纯拉取，压缩无影响；队长中途的纠正（steer 投递的信）压缩后仍可从信箱读回原文 |
+| 失败回退 | 无团队身份 ⇒ 说明性错误；信箱目录不存在 ⇒ 「没有信件」 |
+| 实现 | `src/team-history/{mailbox,tool}.ts`，测试 `test/team-history/` |
+| 待 PoC | 真实团队会话中队长读到成员之间的信、成员读到已读的信；信件字段与 agent-teams 0.1.23 实际写入一致 |
+
+**附：agent-teams 的信件投递（「插话」）**：`agent_teams_send_message` 发给运行中的收件人时走宿主 `steer`（`tools.ts:2149`、`:2260`；队长侧 `members.ts:200`），在其下一个步骤边界插入，同一轮次内生效、不打断正在进行的模型输出与工具调用（`agent-loop/src/agent.ts:167`、`agent/src/runtime-types.ts:225-229`）；空闲则唤醒；都不行时只落盘，调度器在下一个状态边界优先重投（`scheduler.ts:323-340`）。派任务走 `queue`（新轮次）。人只能经队长转发给成员。
 
 ### 4.4 本会话先前窗口原文（只读 `history.*` 等价工具，用户 2026-10-14 确认需要）
 
@@ -383,8 +390,8 @@ section / context 的 `text()` 对无团队会话返回空串；队长建团后�
 
 ## 5. 与 dsh-agent-teams 的耦合面与风险
 
-1. **磁盘格式耦合**：本插件依赖 `team.json` 的 `captainSessionId / members[].id / members[].name / tasks[]`（`types.ts:263-266`、`:354-368`；信箱 JSONL 行格式 `:310-333` 只在后续版本的 §4.3 用到）。agent-teams 升级可能改格式 ⇒ `peerDependencies` **精确钉** `@nanmicoder/dsh-agent-teams@0.1.23`（已写入 `package.json`），升级时重跑 PoC-3/PoC-5。【源码】
-2. **成员工具策略**：部署方可给成员配 `allow` 型 `toolPolicies`，只保留列出的全局工具（`tool-policies.ts:17-24`、`:54-57`）⇒ 未列入的 `team_notes` / `context_remaining` / 4 个 `history_*` 会被裁掉（agent-teams 只自动补它自己的 4 个协调工具）。README「使用」节已给出示例：用 `allow` 策略时把这些名字加进去。【源码】
+1. **磁盘格式耦合**：本插件依赖 `team.json` 的 `captainSessionId / members[].id / members[].name / tasks[]`与信箱 JSONL 行格式（`types.ts:263-266`、`:310-333`、`:354-368`；信箱只在 §4.3 用到）。agent-teams 升级可能改格式 ⇒ `peerDependencies` **精确钉** `@nanmicoder/dsh-agent-teams@0.1.23`（已写入 `package.json`），升级时重跑 PoC-3/PoC-5。【源码】
+2. **成员工具策略**：部署方可给成员配 `allow` 型 `toolPolicies`，只保留列出的全局工具（`tool-policies.ts:17-24`、`:54-57`）⇒ 未列入的 `team_notes` / `team_history` / `context_remaining` / 4 个 `history_*` 会被裁掉（agent-teams 只自动补它自己的 4 个协调工具）。README「使用」节已给出示例：用 `allow` 策略时把这些名字加进去。【源码】
 3. **成员工具过滤的时机**：agent-teams 在成员首次请求前用 `restrict` 固定工具集，并强调「Team creation/archive must never rewrite the captain's system/tools prefix」（`capabilities.ts:65-67`、`:93-95`）。本插件若日后启用 `restrict`，也必须在 `agent/created` 时一次定案，不得事后增删。【源码】
 4. **前缀稳定是上游的显式设计价值**（事实陈述，不作裁决）：agent-teams 把队长 prompt 一次性快照（`capabilities.ts:57-59`）；宿主 plan-mode 文案写明「The tool catalog stays the same across modes for request-cache stability」（`presets/standard.patch.yml:59`）；压缩摘要请求刻意复用前缀以命中 KV cache（`compaction-basic/src/summarizer.ts:28-31`）。这些是 §7-1 两个分支的背景事实。【源码】
 5. **宿主版本**：agent-teams 0.1.23 不声明支持 `0.2.1-alpha.2`（§0-2）。本插件 PoC 必须在 agent-teams 支持的宿主（推荐 `0.2.0-rc.2`，即本机安装版）上做。【源码】
@@ -440,7 +447,7 @@ section / context 的 `text()` 对无团队会话返回空串；队长建团后�
 | §2.4 | 45% 落点 | **方案 D1**（替代 A）：插件仅对团队会话调用 `compactIfNeeded(agent,'context-overflow')` 主动压缩 |
 | 7-8 / §4.4 | 只读历史实现 | **采纳 §4.4**：persistence 只读分页 + 内存索引；zstd→none 作为可选实验配置 |
 | 7-10 | 摘要拦截 | **v1 不拦截**。**目标方案（后续版本）= 模板交接 + LLM 兜底**：笔记新鲜时返回插件自拼的短交接（任务契约 + 笔记指针），缺失或过期时走原 LLM 摘要；拦截点倾向 `serviceFor` 取得的引擎 `summarize()` 钩子，草案与待定项见 `docs/reference/dsh-plugin-survey-2026-10-14/04-handoff-design.md`、`handoff-prep/E-synthesis.md`。用户 2026-10-14 认为这是理想状态，2026-10-15 确认按原进度在后续版本加入 |
-| 新 | 团队级历史 §4.3 | **v1 不做，移到后续版本**（用户 2026-10-16）；以 0.1.0 为基线推进后续版本，先讨论再实现 |
+| 新 | 团队级历史 §4.3 | **v1 不做**（用户 2026-10-16）；以 0.1.0 为基线推进后续版本。0.2.0 只做信件回看：队长看到成员之间的信、大家回查已读的信；不存旧 attempt 结果与重派前会话 |
 | 7-1 | 缓存论 | **分支 B**：窗口内会变的内容走运行时上下文；system 头只放每会话固定的指针 |
 | 7-3 | 合并层 | 设置开关 `notesMerge.enabled`，**默认关 = 由队长维护** `workspace.md`；开启时由用户在设置页从模型下拉中选择模型与推理强度（实现：前端 `ctx.remote.session.modelCatalog()` 级联下拉，原设计为 `ctx.llm.listProviders()` / `listModels(provider)`），再经 `ctx.llm.stream()` 调用（`llm` 运行时 `ctx.get` 取得，不进 inject）。**触发时机（用户确认，2026-10-14）：成员任务完成时**合并该成员笔记。宿主 0.2.0-rc.2 不认识 `agent-teams/*` 事件类型，agent-teams 会跳过写入（`dsh-agent-teams/src/events.ts:45-54`），所以实现改为：每个 `agent_teams_*` 工具调用返回后重读 team.json，与快照比较找出新完成的成员任务；同一工作区排队执行，读 → 调模型 → 条件写入，冲突重试一次，超限或 `max-tokens` 截断则放弃 |
 | 7-4 | hint 来源 | 任务 id + 标题（缓存的 `team.json`）+ 笔记元数据（自己的文件 + 队友最近 ≤5 个） |

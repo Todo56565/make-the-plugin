@@ -26,6 +26,7 @@
 | token budget | 无（插件本体） | 37% 起提示、每 3% 一档；45% 时主动压缩团队会话（宿主压缩服务的 `compactIfNeeded`）。阈值可配置 |
 | 团队笔记 | `notes`（默认开） | `team_notes` 工具（读、写、追加、搜索自己的笔记与 `workspace.md`）；系统提示中的笔记指针；每个新窗口开头的 hint（任务 id/标题 + 最近笔记元数据，为窗口开始时的快照） |
 | 历史工具 | `history`（默认开） | `history_list_windows` / `history_list_items` / `history_read_item` / `history_search_contents`；窗口编号 `w1`、`w2`…，只读，不落盘 |
+| 团队信件回看 | `teamHistory`（默认开） | `team_history` 工具：回看团队信件，含已读和已作废的信。队长看全队（包括成员之间的信），成员看发给自己和自己发出的信。只读，不落盘 |
 | 剩余上下文 | `contextTool`（默认开） | `context_remaining` 工具：返回已用比例与距离主动压缩的余量 |
 | 笔记合并 | `notesMerge`（默认关） | 成员任务完成时用所选模型把其笔记合并进 `workspace.md`；关闭时由队长维护 |
 
@@ -65,7 +66,7 @@ dsh --profile <profile>             # 或 dsh web --profile <profile>
 | 配置项 | 默认 | 说明 |
 |---|---|---|
 | `stateDir` | `.agent-teams` | 须与 agent-teams 的 `stateDir` 一致。放在 `.agent-teams` 之外时，笔记可能被质量闸门计入交付审计（启动时会告警） |
-| `notes` / `history` / `contextTool` | `true` | 三个能力开关 |
+| `notes` / `history` / `teamHistory` / `contextTool` | `true` | 四个能力开关 |
 | `remindAtRatio` | `0.37` | 开始提示的占用比例 |
 | `compactAtRatio` | `0.45` | 主动压缩的占用比例（仅团队会话） |
 | `bucketStep` | `0.03` | 提示档位步长 |
@@ -88,7 +89,7 @@ dsh --profile <profile>             # 或 dsh web --profile <profile>
 ```yaml
 toolPolicies:
   researcher:
-    allow: [read, glob, grep, team_notes, context_remaining, history_list_windows, history_list_items, history_read_item, history_search_contents]
+    allow: [read, glob, grep, team_notes, team_history, context_remaining, history_list_windows, history_list_items, history_read_item, history_search_contents]
 ```
 
 只用 `deny`、或成员没选策略时，不需要处理。
@@ -130,7 +131,8 @@ make-the-plugin/
 │   ├── budget/                    占用计算、37/40/43 提示、45% 压缩（D1）
 │   ├── prompt/                    稳定的 system prompt 指针 section
 │   ├── notes/                     笔记存储、team_notes 工具、hint、可选自动合并
-│   └── history/                   persistence 只读读取、窗口索引、history 工具
+│   ├── history/                   persistence 只读读取、窗口索引、history 工具
+│   └── team-history/              团队信箱只读视图与 team_history 工具
 ├── test/                        单元测试（node --test），目录结构与 src/ 对应
 ├── docs/
 │   ├── design/                    设计文档
