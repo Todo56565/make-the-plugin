@@ -25,6 +25,8 @@ export interface TeamTaskInfo {
   assignee?: string
   /** 当前认领 / 进行中这次执行的 attempt_id（成员更新任务时必须带上）。 */
   attemptId?: string
+  /** 第几次执行（agent-teams 每次认领 +1；缺失为 0）。 */
+  attempt: number
 }
 
 /** 本插件用到的团队字段。 */
@@ -81,6 +83,7 @@ export function coerceTeam(value: unknown, dirId: string): TeamInfo | undefined 
       status: typeof raw.status === 'string' ? raw.status : 'unknown',
       ...(typeof raw.assignee === 'string' ? { assignee: raw.assignee } : {}),
       ...(typeof raw.attemptId === 'string' && raw.attemptId !== '' ? { attemptId: raw.attemptId } : {}),
+      attempt: typeof raw.attempt === 'number' && Number.isSafeInteger(raw.attempt) && raw.attempt >= 0 ? raw.attempt : 0,
     })
   }
   return {

@@ -31,6 +31,7 @@ import { registerContextRemainingTool } from './budget/tool.ts'
 import { CompactionGate, compactionEngineOf, releaseSummarize, takeOverSummarize } from './budget/compact.ts'
 import { TEAM_NOTES_TOOL, createStoreCache, registerTeamNotesTool } from './notes/tool.ts'
 import { ownNotePath } from './notes/paths.ts'
+import { sessionRef, snapshotOnWindowSwitch } from './notes/snapshot.ts'
 import { CompletionTracker, TeamToolCalls, mergeMemberNote, type Generate } from './notes/merge.ts'
 import { listTeams, sanitizeKey } from './team/team-file.ts'
 import { stateRootOf, type TeamIdentity } from './team/identity.ts'
@@ -170,6 +171,16 @@ export function apply(ctx: Context, raw: Config): void {
       maxBytes: config.notesOptions.hintMaxBytes,
     })
     logger.info(`会话 ${owner.id}（${identity.agentKey}）换窗：w${window.index} → w${window.index + 1}，原因 ${reason ?? 'host'}，笔记 ${own.kind}`)
+    if (config.notes) {
+      try {
+        const seq = Number(owner.session.seq) - 1
+        for (const pending of snapshotOnWindowSwitch(identity, sessionRef(owner.session.id, window.index, seq))) {
+          pending.catch(error => logger.warn(`成员笔记快照失败：${String(error)}`))
+        }
+      } catch (error) {
+        logger.warn(`成员笔记快照失败：${String(error)}`)
+      }
+    }
     return text
   }
   const summaryOverride = (owner: Agent): string | undefined => {
