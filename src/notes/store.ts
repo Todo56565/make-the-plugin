@@ -1,14 +1,15 @@
 /**
  * 笔记文件读写（设计 §4.2.2）。
  *
- * - 同一文件的写入在进程内串行；跨进程「最后写入赢」
+ * - 同一文件的写入在进程内串行（按物理路径，跨实例共享）；跨进程「最后写入赢」
+ * - 方法接收虚拟路径；构造时给出团队代则映射到物理位置，返回的 meta.path 仍是虚拟路径
  * - 超过 maxFileBytes 拒绝写入，不静默截断
  * - 搜索为区分大小写的字面包含
  */
 
 import { mkdir, readdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import { WORKSPACE_NOTE } from './paths.ts'
+import { WORKSPACE_NOTE, physicalNotePath, type NoteTeam } from './paths.ts'
 
 export interface NoteMeta {
   path: string
@@ -33,14 +34,20 @@ export function countLines(text: string): number {
   return text.endsWith('\n') ? n - 1 : n
 }
 
+const locks = new Map<string, Promise<unknown>>()
+
 export class NotesStore {
-  private readonly locks = new Map<string, Promise<unknown>>()
   readonly root: string
+  readonly team: NoteTeam | undefined
   private readonly limit: () => number
 
-  /** @param maxFileBytes 单文件上限；传函数时每次写入读取当下值（设置页可即时修改）。 */
-  constructor(root: string, maxFileBytes: number | (() => number)) {
+  /**
+   * @param maxFileBytes 单文件上限；传函数时每次写入读取当下值（设置页可即时修改）。
+   * @param team 团队代；省略时虚拟路径即物理路径（测试与旧调用）。
+   */
+  constructor(root: string, maxFileBytes: number | (() => number), team?: NoteTeam) {
     this.root = root
+    this.team = team
     this.limit = typeof maxFileBytes === 'function' ? maxFileBytes : () => maxFileBytes
   }
 
@@ -49,7 +56,7 @@ export class NotesStore {
   }
 
   private abs(path: string): string {
-    return join(this.root, ...path.split('/'))
+    return join(this.root, ...physicalNotePath(path, this.team).split('/'))
   }
 
   /** 读取笔记；不存在返回 undefined。 */
@@ -103,7 +110,8 @@ export class NotesStore {
   async list(teamId: string): Promise<NoteMeta[]> {
     const paths = [WORKSPACE_NOTE]
     try {
-      for (const name of await readdir(join(this.root, 'teams', teamId))) {
+      const dir = physicalNotePath(`teams/${teamId}/`, this.team)
+      for (const name of await readdir(join(this.root, ...dir.split('/').filter(Boolean)))) {
         if (name.endsWith('.md')) paths.push(`teams/${teamId}/${name}`)
       }
     } catch (error) {
@@ -144,12 +152,13 @@ export class NotesStore {
   }
 
   private serialize<T>(path: string, task: () => Promise<T>): Promise<T> {
-    const prior = this.locks.get(path) ?? Promise.resolve()
+    const key = this.abs(path)
+    const prior = locks.get(key) ?? Promise.resolve()
     const run = prior.then(task, task)
     const settled = run.catch(() => undefined)
-    this.locks.set(path, settled)
+    locks.set(key, settled)
     void settled.then(() => {
-      if (this.locks.get(path) === settled) this.locks.delete(path)
+      if (locks.get(key) === settled) locks.delete(key)
     })
     return run
   }

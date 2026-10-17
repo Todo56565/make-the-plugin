@@ -8,6 +8,7 @@
  */
 
 import { resolveIdentity, type TeamIdentity } from './identity.ts'
+import { ensureLayoutSync } from '../context/migrate.ts'
 
 /** 本插件需要的 agent 形状（与 dsh-agent 的 Agent 结构兼容）。 */
 export interface AgentLike {
@@ -52,6 +53,13 @@ export class TeamDirectory {
       sessionId: agent.id,
       warn: this.warn,
     })
+    if (identity !== undefined) {
+      try {
+        ensureLayoutSync(identity.stateRoot)
+      } catch (error) {
+        this.warn(`笔记目录迁移失败（${identity.stateRoot}），下次重试：${String(error)}`)
+      }
+    }
     this.entries.set(agent.id, { identity, at: now })
     return identity
   }

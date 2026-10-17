@@ -481,7 +481,7 @@ function registerNotesMerge(
       const fileKey = sanitizeKey(memberName)
       const run = async () => {
         const outcome = await mergeMemberNote({
-          store: storeFor({ stateRoot, team, role: 'member', agentKey: memberName, fileKey }),
+          store: storeFor({ stateRoot, team }),
           teamId: team.id,
           teamName: team.name,
           memberName,

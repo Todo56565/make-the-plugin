@@ -5,10 +5,12 @@
  * - `workspace.md`                   共享层（同工作区所有团队共享）
  * - `teams/<teamId>/<fileKey>.md`    每成员原始层（队长 fileKey = captain）
  *
- * 模型只看到虚拟路径；禁止绝对路径、`..`、反斜杠与其他目录。
+ * 以上是模型看到的虚拟路径；团队笔记的物理位置是 `teams/nanmi/<teamId>@<代>/<fileKey>.md`
+ * （设计 0.4.0 §2.4），由 physicalNotePath 映射。禁止绝对路径、`..`、反斜杠与其他目录。
  */
 
 import { join } from 'node:path'
+import { BACKEND_NANMI, teamGenKey } from '../context/layout.ts'
 
 export const WORKSPACE_NOTE = 'workspace.md'
 
@@ -20,6 +22,20 @@ export function notesRootOf(stateRoot: string): string {
 /** 某成员自己的笔记虚拟路径。 */
 export function ownNotePath(teamId: string, fileKey: string): string {
   return `teams/${teamId}/${fileKey}.md`
+}
+
+/** 笔记所属团队的一代。 */
+export interface NoteTeam {
+  id: string
+  createdAt: number
+}
+
+/** 虚拟路径 → 相对笔记根的物理路径。只映射本团队的 `teams/<teamId>/…`。 */
+export function physicalNotePath(path: string, team: NoteTeam | undefined): string {
+  if (team === undefined) return path
+  const prefix = `teams/${team.id}/`
+  if (!path.startsWith(prefix)) return path
+  return `teams/${BACKEND_NANMI}/${teamGenKey(team.id, team.createdAt)}/${path.slice(prefix.length)}`
 }
 
 export interface NoteScope {

@@ -10,6 +10,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { TeamIdentity } from '../team/identity.ts'
 import { notesRootOf, ownNotePath, resolveNotePath } from './paths.ts'
 import { NotesStore, type NoteMeta } from './store.ts'
+import { ensureLayoutSync } from '../context/migrate.ts'
 
 export const TEAM_NOTES_TOOL = 'team_notes'
 
@@ -22,15 +23,17 @@ export interface NotesToolDeps {
   onWrite?: (agent: Agent, identity: TeamIdentity, meta: NoteMeta) => void
 }
 
-/** 按 stateRoot 复用 NotesStore（同一工作区共用一把进程内锁）。 */
-export function createStoreCache(maxFileBytes: () => number): (identity: TeamIdentity) => NotesStore {
+/** 按状态根 + 团队代复用 NotesStore（进程内写锁按物理路径共享）；首次使用某状态根时确保布局已迁移。 */
+export function createStoreCache(maxFileBytes: () => number): (identity: Pick<TeamIdentity, 'stateRoot' | 'team'>) => NotesStore {
   const stores = new Map<string, NotesStore>()
   return (identity) => {
+    ensureLayoutSync(identity.stateRoot)
     const root = notesRootOf(identity.stateRoot)
-    let store = stores.get(root)
+    const key = `${root}\0${identity.team.id}\0${identity.team.createdAt}`
+    let store = stores.get(key)
     if (store === undefined) {
-      store = new NotesStore(root, maxFileBytes)
-      stores.set(root, store)
+      store = new NotesStore(root, maxFileBytes, { id: identity.team.id, createdAt: identity.team.createdAt })
+      stores.set(key, store)
     }
     return store
   }

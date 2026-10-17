@@ -11,7 +11,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import type { TeamIdentity } from '../team/identity.ts'
-import { notesRootOf, ownNotePath, WORKSPACE_NOTE } from '../notes/paths.ts'
+import { notesRootOf, ownNotePath, physicalNotePath, WORKSPACE_NOTE } from '../notes/paths.ts'
 import { countLines, type NoteMeta } from '../notes/store.ts'
 
 export const HANDOFF_TITLE = '【交接】'
@@ -27,14 +27,15 @@ export function listNoteMetasSync(identity: TeamIdentity): NoteMeta[] {
   const root = notesRootOf(identity.stateRoot)
   const paths = [WORKSPACE_NOTE]
   try {
-    for (const name of readdirSync(join(root, 'teams', identity.team.id))) {
+    const dir = physicalNotePath(`teams/${identity.team.id}/`, identity.team)
+    for (const name of readdirSync(join(root, ...dir.split('/').filter(Boolean)))) {
       if (name.endsWith('.md')) paths.push(`teams/${identity.team.id}/${name}`)
     }
   } catch { /* 目录不存在 */ }
   const metas: NoteMeta[] = []
   for (const path of paths) {
     try {
-      const abs = join(root, ...path.split('/'))
+      const abs = join(root, ...physicalNotePath(path, identity.team).split('/'))
       const text = readFileSync(abs, 'utf8')
       metas.push({ path, lines: countLines(text), bytes: Buffer.byteLength(text), mtimeMs: statSync(abs).mtimeMs })
     } catch { /* 不存在 */ }
@@ -45,7 +46,7 @@ export function listNoteMetasSync(identity: TeamIdentity): NoteMeta[] {
 /** 自己笔记的 mtime；不存在返回 undefined。 */
 export function ownNoteMtime(identity: TeamIdentity): number | undefined {
   try {
-    return statSync(join(notesRootOf(identity.stateRoot), ...ownNotePath(identity.team.id, identity.fileKey).split('/'))).mtimeMs
+    return statSync(join(notesRootOf(identity.stateRoot), ...physicalNotePath(ownNotePath(identity.team.id, identity.fileKey), identity.team).split('/'))).mtimeMs
   } catch {
     return undefined
   }
