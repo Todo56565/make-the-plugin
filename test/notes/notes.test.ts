@@ -30,7 +30,7 @@ test('countLines', () => {
 function identity(stateRoot: string, fileKey = 'alice', role: 'captain' | 'member' = 'member'): TeamIdentity {
   return {
     role, fileKey, agentKey: fileKey === 'captain' ? 'captain' : 'Alice', stateRoot,
-    team: { id: 'team-a', name: 'A 队', captainSessionId: 'c1', members: [], tasks: [] },
+    team: { id: 'team-a', name: 'A 队', captainSessionId: 'c1', createdAt: 0, members: [], tasks: [] },
   }
 }
 

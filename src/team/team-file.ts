@@ -33,6 +33,8 @@ export interface TeamInfo {
   id: string
   name: string
   captainSessionId: string
+  /** 团队创建时间（毫秒）；同名团队的「代」由它区分。旧文件缺失时为 0。 */
+  createdAt: number
   members: TeamMemberInfo[]
   tasks: TeamTaskInfo[]
 }
@@ -85,6 +87,7 @@ export function coerceTeam(value: unknown, dirId: string): TeamInfo | undefined 
     id: typeof value.id === 'string' && value.id !== '' ? value.id : dirId,
     name: typeof value.name === 'string' ? value.name : dirId,
     captainSessionId: value.captainSessionId,
+    createdAt: typeof value.createdAt === 'number' && Number.isSafeInteger(value.createdAt) && value.createdAt >= 0 ? value.createdAt : 0,
     members,
     tasks,
   }

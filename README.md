@@ -128,6 +128,7 @@ make-the-plugin/
 │   ├── index.ts                   入口：name / inject / Config / apply()
 │   ├── config.ts                  配置 schema（Schemastery）与默认值
 │   ├── team/                      团队身份解析、team.json 缓存读取
+│   ├── context/                   `.context` 目录布局（各区路径、团队代、layout.json）、跨插件文件锁、原子写
 │   ├── window/                    窗口投影（history 口径）、换窗状态与决策、context_new_window 工具
 │   ├── budget/                    占用计算、提醒与兜底文本、换窗压缩与 summarize() 接管
 │   ├── prompt/                    常驻规则 section、【交接】模板（完整版 / w1 精简版）

@@ -7,7 +7,7 @@ import type { TeamIdentity } from '../../src/team/identity.ts'
 const member: TeamIdentity = {
   role: 'member', agentKey: 'bob', fileKey: 'bob', stateRoot: '/tmp/x',
   team: {
-    id: 'team-7f3a', name: '接口重构', captainSessionId: 'c1', members: [],
+    id: 'team-7f3a', name: '接口重构', captainSessionId: 'c1', createdAt: 0, members: [],
     tasks: [
       { id: 't2', subject: '接口联调', status: 'in_progress', assignee: 'bob', attemptId: '59752a8f' },
       { id: 't3', subject: '已完成的', status: 'completed', assignee: 'bob' },

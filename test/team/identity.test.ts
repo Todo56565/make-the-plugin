@@ -8,7 +8,7 @@ import { matchIdentity, resolveIdentity } from '../../src/team/identity.ts'
 import { TeamDirectory } from '../../src/team/directory.ts'
 
 const team = (id: string, captain: string, members: Array<[string, string]>) => ({
-  id, name: id, captainSessionId: captain,
+  id, name: id, captainSessionId: captain, createdAt: 0,
   members: members.map(([mid, name]) => ({ id: mid, name })),
   tasks: [{ id: 't1', subject: '调研', status: 'in_progress', assignee: 'alice' }],
 })
@@ -83,7 +83,7 @@ test('TeamDirectory：否定结果短时缓存，事件后失效', () => {
 
 test('coerceTeam 读出任务的 attempt_id（换窗交接要带）', () => {
   const t = coerceTeam({
-    captainSessionId: 'c', members: [],
+    captainSessionId: 'c', createdAt: 0, members: [],
     tasks: [
       { id: 't1', subject: 's', status: 'in_progress', assignee: 'bob', attemptId: 'a-1' },
       { id: 't2', subject: 's', status: 'pending', attemptId: '' },

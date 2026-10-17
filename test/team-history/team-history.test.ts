@@ -28,7 +28,7 @@ function fixture(): string {
 }
 
 function identity(root: string, role: 'captain' | 'member', agentKey: string): TeamIdentity {
-  return { role, agentKey, fileKey: agentKey, stateRoot: root, team: { id: 'team-a', name: 'A', captainSessionId: 'c', members: [], tasks: [] } }
+  return { role, agentKey, fileKey: agentKey, stateRoot: root, team: { id: 'team-a', name: 'A', captainSessionId: 'c', createdAt: 0, members: [], tasks: [] } }
 }
 
 test('parseMailbox：坏行计数', () => {

@@ -7,7 +7,7 @@ import { CompletionTracker, TeamToolCalls, cleanMergeOutput, mergeMemberNote, ty
 import { NotesStore } from '../../src/notes/store.ts'
 import type { TeamInfo } from '../../src/team/team-file.ts'
 
-const team = (tasks: TeamInfo['tasks']): TeamInfo => ({ id: 'team-a', name: 'A 队', captainSessionId: 'c1', members: [], tasks })
+const team = (tasks: TeamInfo['tasks']): TeamInfo => ({ id: 'team-a', name: 'A 队', captainSessionId: 'c1', createdAt: 0, members: [], tasks })
 
 test('CompletionTracker：首次只建快照，之后报告新完成的成员任务', () => {
   const tracker = new CompletionTracker()
