@@ -33,6 +33,7 @@ import { TEAM_NOTES_TOOL, createStoreCache, registerTeamNotesTool } from './note
 import { ownNotePath } from './notes/paths.ts'
 import { sessionRef, snapshotOnWindowSwitch } from './notes/snapshot.ts'
 import { TeamToolCalls, mergePendingBatch, type Generate } from './notes/merge.ts'
+import { sweepEndedGenerations } from './records/ended.ts'
 import { readFullEntriesSince, recordTerminalTasks, type LocateMember } from './records/full.ts'
 import { teamGenKey, workspaceSnapshotPath } from './context/layout.ts'
 import { readFile } from 'node:fs/promises'
@@ -511,6 +512,14 @@ function registerNotesMerge(
     // 全文记录始终开启；合并以待合并清单为输入：清单非空就处理（含插件启动前积下的与已结束团队代的）
     void recordTerminalTasks(stateRoot, teams, Date.now(), locateMember).then(written => {
       if (written.length > 0) logger.info(`全文记录：新增 ${written.length} 条（${stateRoot}）`)
+      // 结束代收尾在全文记录之后：本次刚写入的终态 attempt 不会被当成「无终态」删掉
+      void sweepEndedGenerations(stateRoot, { cleanupDays: config.notesOptions.recordsCleanupDays }).then(r => {
+        if (r.newlyEnded.length > 0 || r.movedNotes > 0 || r.removedAttempts > 0 || r.purged.length > 0) {
+          logger.info(`结束代收尾（${stateRoot}）：新结束 ${r.newlyEnded.join(', ') || '无'}，搬入笔记 ${r.movedNotes} 份，删除无终态 attempt ${r.removedAttempts} 个，清理 ${r.purged.join(', ') || '无'}`)
+        }
+      }, (error: unknown) => {
+        if (!lifetime.signal.aborted) logger.warn(`结束代收尾失败（${stateRoot}）：${String(error)}`)
+      })
       const enabled = config.notes && config.notesMerge.enabled && config.notesMerge.model !== undefined
       if (enabled) scheduleDrain(stateRoot)
     }, (error: unknown) => {
