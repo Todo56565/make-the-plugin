@@ -58,7 +58,7 @@ export async function runTeamNotes(
   readMaxBytes?: number,
 ): Promise<string> {
   const scope = { teamId: identity.team.id, fileKey: identity.fileKey }
-  const pendingText = async () => renderPending(await readPending(identity.stateRoot), identity.team)
+  const pendingText = async () => renderPending(await readPending(identity.stateRoot, identity.team))
   const isPending = (args.path ?? '').trim() === PENDING_NOTE
   switch (args.action) {
     case 'list': {
@@ -82,10 +82,9 @@ export async function runTeamNotes(
       if (identity.role !== 'captain') throw new Error(`只有队长能处理待合并清单（${PENDING_NOTE}）`)
       const ids = parseIds(args.ids)
       if (ids.length === 0) throw new Error('resolve 需要 ids')
-      const result = await resolvePending(identity.stateRoot, ids, e => e.teamId === identity.team.id && e.createdAt === identity.team.createdAt)
+      const result = await resolvePending(identity.stateRoot, identity.team, ids)
       const parts: string[] = []
       if (result.removed.length > 0) parts.push(`已从 ${PENDING_NOTE} 删除：${result.removed.map(e => e.id).join('、')}`)
-      if (result.denied.length > 0) parts.push(`不属于本团队、未删除：${result.denied.join('、')}`)
       if (result.missing.length > 0) parts.push(`清单里没有：${result.missing.join('、')}`)
       return parts.join('\n')
     }

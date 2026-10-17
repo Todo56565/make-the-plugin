@@ -261,8 +261,8 @@ async function recordNow(stateRoot: string, teams: readonly TeamInfo[], now: num
       // 待合并清单：先于全文条目写入（按 key 幂等），崩溃重试不丢
       const last = snapshots[snapshots.length - 1]
       if (last !== undefined && PENDING_STATUSES.has(item.task.status)) {
-        await addPending(stateRoot, [{
-          key: item.key, teamId: item.team.id, createdAt: item.team.createdAt, teamName: item.team.name,
+        await addPending(stateRoot, item.team, [{
+          key: item.key, teamName: item.team.name,
           taskId: item.task.id, subject: item.task.subject, attempt: item.task.attempt,
           member: item.task.assignee ?? '', status: item.task.status, snapshot: last.path, ref, at: now,
         }])

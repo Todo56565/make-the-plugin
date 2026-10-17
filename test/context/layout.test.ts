@@ -27,7 +27,7 @@ test('各区路径', () => {
   assert.equal(snapshotFileName(7, 'abcdef1234'), '007-abcdef12.md')
   assert.equal(fullVolumePath(root, 1), '/w/.agent-teams/.context/records/full/0001.md')
   assert.equal(workspaceSnapshotPath(root, 12), '/w/.agent-teams/.context/records/workspace-snapshots/000012.md')
-  assert.equal(pendingPath(root), '/w/.agent-teams/.context/shared/pending.jsonl')
+  assert.equal(pendingPath(root, 'team-a', 36), '/w/.agent-teams/.context/shared/pending/nanmi/team-a@10.jsonl')
   assert.equal(fullCursorPath(root), '/w/.agent-teams/.context/state/full-cursor.json')
 })
 

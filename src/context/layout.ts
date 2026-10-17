@@ -86,9 +86,14 @@ export function workspaceSnapshotPath(stateRoot: string, seq: number): string {
   return join(zoneDir(stateRoot, 'records'), 'workspace-snapshots', `${String(seq).padStart(6, '0')}.md`)
 }
 
-/** 待合并清单（物理）：`shared/pending.jsonl` */
-export function pendingPath(stateRoot: string): string {
-  return join(zoneDir(stateRoot, 'shared'), 'pending.jsonl')
+/** 待合并清单目录（全部团队代，合并流程扫它就是全局队列）：`shared/pending/nanmi/` */
+export function pendingDir(stateRoot: string): string {
+  return join(zoneDir(stateRoot, 'shared'), 'pending', BACKEND_NANMI)
+}
+
+/** 某团队代的待合并清单（物理）：`shared/pending/nanmi/<teamId>@<代>.jsonl` */
+export function pendingPath(stateRoot: string, teamId: string, createdAt: number): string {
+  return join(pendingDir(stateRoot), `${teamGenKey(teamId, createdAt)}.jsonl`)
 }
 
 /** 跨插件锁：`shared/locks/<name>.lock` */

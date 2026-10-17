@@ -527,7 +527,7 @@ function registerNotesMerge(
         })
         if (outcome === 'merged') {
           logger.info(`已把 ${memberName} 的笔记合并进 workspace.md（${team.id} / ${task.id}）`)
-          await resolvePendingByKey(stateRoot, key)
+          await resolvePendingByKey(stateRoot, team, key)
         }
         else if (outcome !== 'empty-note') logger.warn(`笔记合并未写入（${team.id} / ${task.id}）：${outcome}`)
       }
