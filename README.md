@@ -6,7 +6,7 @@
 - **只作用于团队会话**（队长与成员），普通会话不受影响。
 - 插件整体由 DSH 插件管理面板启停。
 
-> 状态：**0.3.0（换窗交接）已发布**（2026-10-17，tag `v0.3.0`）。**0.4.0（workspace 双层记录）实现完成、待真跑验证与发布**，设计见 [`docs/design/0.4.0-workspace-notes.md`](docs/design/0.4.0-workspace-notes.md)。权威设计见 [`docs/design/plugin-design.md`](docs/design/plugin-design.md) 与各版本设计文档。
+> 状态：**0.4.0（workspace 双层记录）已完成**（2026-10-18，tag `v0.4.0`，未发 Release），设计见 [`docs/design/0.4.0-workspace-notes.md`](docs/design/0.4.0-workspace-notes.md)。0.3.0（换窗交接）见 tag `v0.3.0`。权威设计见 [`docs/design/plugin-design.md`](docs/design/plugin-design.md) 与各版本设计文档。
 
 ## 它解决什么
 
