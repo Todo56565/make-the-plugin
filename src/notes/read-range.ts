@@ -2,7 +2,8 @@
  * team_notes read 的行范围（设计 0.4.0 §5）。纯函数。
  *
  * - 行号从 1 起，start/stop 均含；
- * - 不给范围且文件超过 {@link READ_MAX_BYTES}：只返回末尾若干整行，附总行数与分段读提示；
+ * - 上限由设置 readMaxBytes 决定（默认 {@link READ_MAX_BYTES}）；
+ * - 不给范围且文件超过上限：只返回末尾若干整行，附总行数与分段读提示；
  * - 给了范围但结果仍超上限：从 start 起截到上限，提示下一段的起始行。
  */
 
@@ -14,7 +15,7 @@ function splitLines(text: string): string[] {
   return lines
 }
 
-export function sliceForRead(path: string, text: string, start?: number, stop?: number, maxBytes = READ_MAX_BYTES): string {
+export function sliceForRead(path: string, text: string, start?: number, stop?: number, maxBytes: number = READ_MAX_BYTES): string {
   const lines = splitLines(text)
   const total = lines.length
   if (start === undefined && stop === undefined) {

@@ -20,6 +20,8 @@ export interface NotesToolDeps {
   storeFor: (identity: TeamIdentity) => NotesStore
   /** search 结果上限。 */
   maxResults: number
+  /** read 单次返回的字节上限（即时配置）。 */
+  readMaxBytes?: () => number
   /** 写入成功后回调（记录本窗口写过自己的笔记，设计 0.3.0 §9a-7）。 */
   onWrite?: (agent: Agent, identity: TeamIdentity, meta: NoteMeta) => void
 }
@@ -51,6 +53,7 @@ export async function runTeamNotes(
   store: NotesStore,
   maxResults: number,
   onWrite?: (meta: NoteMeta) => void,
+  readMaxBytes?: number,
 ): Promise<string> {
   const scope = { teamId: identity.team.id, fileKey: identity.fileKey }
   switch (args.action) {
@@ -66,7 +69,7 @@ export async function runTeamNotes(
       const text = await store.read(target.path)
       if (text === undefined) return `${target.path} 还不存在。`
       if (text === '') return `${target.path} 为空。`
-      return sliceForRead(target.path, text, args.start_line, args.stop_line)
+      return sliceForRead(target.path, text, args.start_line, args.stop_line, readMaxBytes)
     }
     case 'write':
     case 'append': {
@@ -121,7 +124,7 @@ export function registerTeamNotesTool(ctx: Context, deps: NotesToolDeps): () => 
       const identity = deps.identityOf(agent)
       if (identity === undefined) throw new Error('当前会话不属于任何 AgentTeams 团队，team_notes 不可用')
       const store = deps.storeFor(identity)
-      const text = await runTeamNotes(args, identity, store, deps.maxResults, meta => deps.onWrite?.(agent, identity, meta))
+      const text = await runTeamNotes(args, identity, store, deps.maxResults, meta => deps.onWrite?.(agent, identity, meta), deps.readMaxBytes?.())
       return { text }
     },
   }))

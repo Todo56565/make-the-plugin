@@ -28,6 +28,7 @@ test('扁平配置换算与默认值', () => {
   assert.equal(s.notesMerge.enabled, false)
   assert.equal(s.notesMerge.model, undefined)
   assert.equal(s.notesOptions.maxFileBytes, 10_000)
+  assert.equal(s.notesOptions.readMaxBytes, 24_000)
   assert.equal(s.budget.bucketStep, 0.03)
   assert.equal(s.budget.fallbackBufferTokens, 16_384)
   assert.equal(s.notesOptions.hintMaxBytes, 4_000)

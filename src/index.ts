@@ -275,6 +275,7 @@ export function apply(ctx: Context, raw: Config): void {
     identityOf: agent => teams.identityOf(agent, true),
     storeFor,
     maxResults: config.historyOptions.maxResults,
+    readMaxBytes: () => config.notesOptions.readMaxBytes,
     onWrite: (agent, identity, meta) => {
       if (meta.path !== ownNotePath(identity.team.id, identity.fileKey)) return
       states.recordWrite(agent.id, windowFor(agent).index, Date.now())
