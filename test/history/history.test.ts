@@ -114,3 +114,13 @@ test('HistorySource：inheritedEventCount 缺失时按 0 处理', async () => {
   assert.equal(model.currentWindow, 2)
   assert.deepEqual(model.items.map(i => [i.id, i.window, i.hidden]), [['e0', 1, true], ['e2', 2, false]])
 })
+
+test('positionAt：按截止时间取最后条目，缺省取最后一条，早于全部条目返回 undefined', async () => {
+  const { positionAt } = await import('../../src/history/model.ts')
+  const item = (seq: number, window: number, time: number) => ({ id: `e${seq}`, seq, window, role: 'assistant' as const, time, toolNames: [], hidden: false, text: 'x' })
+  const model = { windows: [], currentWindow: 2, items: [item(3, 1, 100), item(8, 2, 200), item(12, 2, 300)] }
+  assert.deepEqual(positionAt(model), { window: 2, seq: 12 })
+  assert.deepEqual(positionAt(model, 250), { window: 2, seq: 8 })
+  assert.deepEqual(positionAt(model, 200), { window: 2, seq: 8 })
+  assert.equal(positionAt(model, 50), undefined)
+})

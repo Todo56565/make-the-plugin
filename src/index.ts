@@ -33,12 +33,13 @@ import { TEAM_NOTES_TOOL, createStoreCache, registerTeamNotesTool } from './note
 import { ownNotePath } from './notes/paths.ts'
 import { sessionRef, snapshotOnWindowSwitch } from './notes/snapshot.ts'
 import { TeamToolCalls, mergeMemberNote, type Generate } from './notes/merge.ts'
-import { recordTerminalTasks } from './records/full.ts'
+import { recordTerminalTasks, type LocateMember } from './records/full.ts'
 import { CAPTAIN_KEY, listTeams, sanitizeKey, type TeamInfo, type TeamTaskInfo } from './team/team-file.ts'
 import { stateRootOf, type TeamIdentity } from './team/identity.ts'
 import { FrozenText, NOTES_SECTION_ORDER, notesSectionText } from './prompt/notes-section.ts'
 import { handoffText, initialHandoffText, listNoteMetasSync, ownNoteMtime, type OwnNoteState } from './prompt/handoff.ts'
 import { HistorySource } from './history/source.ts'
+import { positionAt } from './history/model.ts'
 import { registerHistoryTools } from './history/tools.ts'
 import { registerTeamHistoryTool } from './team-history/tool.ts'
 
@@ -100,6 +101,11 @@ export function apply(ctx: Context, raw: Config): void {
   const engineMissingWarned = new Set<string>()
   /** history 读取源；会话结束时释放修订缓存。 */
   const historySource = new HistorySource(() => ctx.sessionPersistence)
+  // 终态快照坐标：读成员会话日志，取任务 updatedAt 之前的最后一个条目
+  const locateMember = async (sessionId: string, until: number | undefined): Promise<string | undefined> => {
+    const position = positionAt(await historySource.load(sessionId), until)
+    return position === undefined ? undefined : sessionRef(sessionId, position.window, position.seq)
+  }
 
   // 窗口投影（history 模型口径）
   ctx.effect(() => registerWindowCounter(ctx), 'dsh-token-budget: window projection')
@@ -282,7 +288,7 @@ export function apply(ctx: Context, raw: Config): void {
 
   // ── notes：工具（开关 notes，即时生效）──
   const storeFor = createStoreCache(() => config.notesOptions.maxFileBytes, () => config.notesOptions.workspaceMaxBytes)
-  registerNotesMerge(ctx, config, storeFor, logger)
+  registerNotesMerge(ctx, config, storeFor, logger, locateMember)
   switchable('dsh-token-budget: team_notes tool', () => config.notes, () => registerTeamNotesTool(ctx, {
     identityOf: agent => teams.identityOf(agent, true),
     storeFor,
@@ -442,6 +448,7 @@ function registerNotesMerge(
   config: Settings,
   storeFor: ReturnType<typeof createStoreCache>,
   logger: ReturnType<Context['logger']>,
+  locateMember: LocateMember,
 ): void {
   const lifetime = new AbortController()
   ctx.effect(() => () => lifetime.abort(), 'dsh-token-budget: notes merge lifetime')
@@ -490,7 +497,7 @@ function registerNotesMerge(
       return
     }
     // 全文记录始终开启；合并只对本次新写入、已完成、执行者不是队长的任务触发
-    void recordTerminalTasks(stateRoot, teams).then(written => {
+    void recordTerminalTasks(stateRoot, teams, Date.now(), locateMember).then(written => {
       if (written.length > 0) logger.info(`全文记录：新增 ${written.length} 条（${stateRoot}）`)
       const enabled = config.notes && config.notesMerge.enabled && config.notesMerge.model !== undefined
       if (!enabled) return

@@ -234,3 +234,15 @@ export function formatItemPreview(item: HistoryItem, maxChars: number): string {
   const tail = cut.truncated ? `…（共 ${cut.total} 字）` : ''
   return `${formatItemHeader(item)} ${cut.text}${tail} [id: ${item.id}]`
 }
+
+/**
+ * 截至 `until`（毫秒时间戳）的最后一个条目位置；`until` 缺省取最后一个条目。
+ * 供终态快照定位成员「做完时停在哪」：用任务 updatedAt 截断，成员之后接的新活不算。
+ */
+export function positionAt(model: HistoryModel, until?: number): { window: number; seq: number } | undefined {
+  for (let i = model.items.length - 1; i >= 0; i--) {
+    const item = model.items[i]!
+    if (until === undefined || item.time <= until) return { window: item.window, seq: item.seq }
+  }
+  return undefined
+}

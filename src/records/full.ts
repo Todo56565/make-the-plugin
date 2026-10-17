@@ -164,7 +164,7 @@ async function lastVolumeKeys(stateRoot: string): Promise<Set<string>> {
 }
 
 /** 终态快照 + 该 attempt 全部快照（路径相对 `.context`，即 records/… 虚拟路径）。 */
-async function snapshotsFor(stateRoot: string, team: TeamInfo, task: TeamTaskInfo, memberSessionId: string | undefined, at: number): Promise<FullEntryInput['snapshots']> {
+async function snapshotsFor(stateRoot: string, team: TeamInfo, task: TeamTaskInfo, ref: string, at: number): Promise<FullEntryInput['snapshots']> {
   const assignee = task.assignee
   if (assignee === undefined || assignee === '' || assignee === CAPTAIN_KEY) return []
   const fileKey = sanitizeKey(assignee)
@@ -173,7 +173,7 @@ async function snapshotsFor(stateRoot: string, team: TeamInfo, task: TeamTaskInf
     if (content !== '') {
       await takeSnapshot({
         stateRoot, teamId: team.id, createdAt: team.createdAt, taskId: task.id, attempt: task.attempt,
-        fileKey, content, ref: memberSessionId ?? '', reason: 'terminal', at,
+        fileKey, content, ref, reason: 'terminal', at,
       })
     }
   } catch (error) {
@@ -189,16 +189,36 @@ async function snapshotsFor(stateRoot: string, team: TeamInfo, task: TeamTaskInf
   }))
 }
 
+/**
+ * 由成员会话 id 与截止时间算出 `<sessionId>/w<n>/e<seq>`；算不出返回 undefined（退回只记会话 id）。
+ */
+export type LocateMember = (sessionId: string, until: number | undefined) => Promise<string | undefined>
+
+function updatedAtOf(task: TeamTaskInfo): number | undefined {
+  const v = task.details?.updatedAt
+  return typeof v === 'number' && Number.isFinite(v) ? v : undefined
+}
+
+async function terminalRef(task: TeamTaskInfo, memberSessionId: string | undefined, locate: LocateMember | undefined): Promise<string> {
+  if (memberSessionId === undefined) return ''
+  if (locate === undefined) return memberSessionId
+  try {
+    return (await locate(memberSessionId, updatedAtOf(task))) ?? memberSessionId
+  } catch {
+    return memberSessionId
+  }
+}
+
 const chains = new Map<string, Promise<unknown>>()
 
 /**
  * 把终态任务记入全文。返回本次新写入的任务（基线跳过的不算）。
  * 同一状态根串行。
  */
-export function recordTerminalTasks(stateRoot: string, teams: readonly TeamInfo[], now = Date.now()): Promise<RecordedTask[]> {
+export function recordTerminalTasks(stateRoot: string, teams: readonly TeamInfo[], now = Date.now(), locate?: LocateMember): Promise<RecordedTask[]> {
   const prior = chains.get(stateRoot) ?? Promise.resolve()
   const run = prior.catch(() => undefined).then(() =>
-    withFileLock(lockPath(stateRoot, 'full'), () => recordNow(stateRoot, teams, now)))
+    withFileLock(lockPath(stateRoot, 'full'), () => recordNow(stateRoot, teams, now, locate)))
   chains.set(stateRoot, run)
   void run.finally(() => {
     if (chains.get(stateRoot) === run) chains.delete(stateRoot)
@@ -206,7 +226,7 @@ export function recordTerminalTasks(stateRoot: string, teams: readonly TeamInfo[
   return run
 }
 
-async function recordNow(stateRoot: string, teams: readonly TeamInfo[], now: number): Promise<RecordedTask[]> {
+async function recordNow(stateRoot: string, teams: readonly TeamInfo[], now: number, locate: LocateMember | undefined): Promise<RecordedTask[]> {
   const terminal: RecordedTask[] = []
   for (const team of teams) {
     for (const task of team.tasks) {
@@ -232,7 +252,8 @@ async function recordNow(stateRoot: string, teams: readonly TeamInfo[], now: num
   for (const item of fresh) {
     if (!tail.has(item.key)) {
       const memberSessionId = item.team.members.find(m => m.name === item.task.assignee)?.id || undefined
-      const snapshots = await snapshotsFor(stateRoot, item.team, item.task, memberSessionId, now)
+      const ref = await terminalRef(item.task, memberSessionId, locate)
+      const snapshots = await snapshotsFor(stateRoot, item.team, item.task, ref, now)
       await appendEntry(stateRoot, renderFullEntry({ key: item.key, team: item.team, task: item.task, memberSessionId, snapshots, at: now }))
       written.push(item)
     }

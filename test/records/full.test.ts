@@ -57,3 +57,19 @@ test('单条超限截断 output 并标注原长度', () => {
   assert.ok(Buffer.byteLength(text) <= 4_000)
   assert.match(text, /output 已截断，原长 60000 字节/)
 })
+
+test('终态快照坐标：locate 给出 w/e 并按 updatedAt 截断；locate 失败退回会话 id', async () => {
+  const { readSnapshotMetas } = await import('../../src/notes/snapshot.ts')
+  const root = mkdtempSync(join(tmpdir(), 'full-'))
+  await recordTerminalTasks(root, [team([])])
+  mkdirSync(notesTeamDir(root, 'team-a', createdAt), { recursive: true })
+  writeFileSync(join(notesTeamDir(root, 'team-a', createdAt), 'alice.md'), '笔记一\n')
+  const calls: Array<[string, number | undefined]> = []
+  const t1 = done('t1', 1, { details: { output: 'r', updatedAt: 12345 } })
+  await recordTerminalTasks(root, [team([t1])], 0, async (id, until) => { calls.push([id, until]); return `${id}/w3/e40` })
+  assert.deepEqual(calls, [['sess-alice', 12345]])
+  assert.equal((await readSnapshotMetas(root, 'team-a', createdAt, 't1', 1))[0]!.ref, 'sess-alice/w3/e40')
+  writeFileSync(join(notesTeamDir(root, 'team-a', createdAt), 'alice.md'), '笔记二\n')
+  await recordTerminalTasks(root, [team([t1, done('t2')])], 0, async () => { throw new Error('读不到') })
+  assert.equal((await readSnapshotMetas(root, 'team-a', createdAt, 't2', 1))[0]!.ref, 'sess-alice')
+})
