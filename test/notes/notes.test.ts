@@ -11,10 +11,10 @@ import type { TeamIdentity } from '../../src/team/identity.ts'
 const scope = { teamId: 'team-a', fileKey: 'alice' }
 
 test('resolveNotePath：自己、共享、队友、越权', () => {
-  assert.deepEqual(resolveNotePath(undefined, scope), { ok: true, path: 'teams/team-a/alice.md', own: true, shared: false })
-  assert.deepEqual(resolveNotePath('workspace.md', scope), { ok: true, path: 'workspace.md', own: false, shared: true })
-  assert.deepEqual(resolveNotePath('bob.md', scope), { ok: true, path: 'teams/team-a/bob.md', own: false, shared: false })
-  assert.deepEqual(resolveNotePath('teams/team-a/alice.md', scope), { ok: true, path: 'teams/team-a/alice.md', own: true, shared: false })
+  assert.deepEqual(resolveNotePath(undefined, scope), { ok: true, path: 'teams/team-a/alice.md', own: true, shared: false, record: false })
+  assert.deepEqual(resolveNotePath('workspace.md', scope), { ok: true, path: 'workspace.md', own: false, shared: true, record: false })
+  assert.deepEqual(resolveNotePath('bob.md', scope), { ok: true, path: 'teams/team-a/bob.md', own: false, shared: false, record: false })
+  assert.deepEqual(resolveNotePath('teams/team-a/alice.md', scope), { ok: true, path: 'teams/team-a/alice.md', own: true, shared: false, record: false })
   for (const bad of ['../x.md', '/etc/passwd', 'teams/team-b/x.md', 'a/b.md', 'x.txt', 'C:x.md', 'a\\b.md', 'teams/team-a/../x.md']) {
     assert.equal(resolveNotePath(bad, scope).ok, false, bad)
   }

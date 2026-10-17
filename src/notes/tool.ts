@@ -9,6 +9,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { TeamIdentity } from '../team/identity.ts'
 import { notesRootOf, ownNotePath, resolveNotePath } from './paths.ts'
+import { sliceForRead } from './read-range.ts'
 import { NotesStore, type NoteMeta } from './store.ts'
 import { ensureLayoutSync } from '../context/migrate.ts'
 
@@ -45,7 +46,7 @@ function formatMeta(meta: NoteMeta): string {
 
 /** 执行一次 team_notes 调用，返回给模型的文本。纯逻辑，便于测试。 */
 export async function runTeamNotes(
-  args: { action: string; path?: string; content?: string; query?: string },
+  args: { action: string; path?: string; content?: string; query?: string; start_line?: number; stop_line?: number },
   identity: TeamIdentity,
   store: NotesStore,
   maxResults: number,
@@ -64,12 +65,14 @@ export async function runTeamNotes(
       if (!target.ok) throw new Error(target.error)
       const text = await store.read(target.path)
       if (text === undefined) return `${target.path} 还不存在。`
-      return text === '' ? `${target.path} 为空。` : text
+      if (text === '') return `${target.path} 为空。`
+      return sliceForRead(target.path, text, args.start_line, args.stop_line)
     }
     case 'write':
     case 'append': {
       const target = resolveNotePath(args.path, scope)
       if (!target.ok) throw new Error(target.error)
+      if (target.record) throw new Error(`${target.path} 是插件维护的记录，只读`)
       if (target.shared && identity.role !== 'captain') throw new Error(`成员不能写 workspace.md（由队长或合并模型维护），请写进自己的笔记（${ownNotePath(scope.teamId, scope.fileKey)}）`)
       if (!target.own && !target.shared) throw new Error(`只能写自己的笔记（${ownNotePath(scope.teamId, scope.fileKey)}）${identity.role === 'captain' ? '或 workspace.md' : ''}`)
       if (args.content === undefined) throw new Error(`${args.action} 需要 content`)
@@ -97,7 +100,9 @@ export function registerTeamNotesTool(ctx: Context, deps: NotesToolDeps): () => 
     description: '团队笔记，存在磁盘上，上下文压缩后不丢失。',
     parameters: {
       action: { type: 'string', enum: ['list', 'read', 'write', 'append', 'search'], required: true, description: 'list / read / write（全量重写）/ append / search（字面，区分大小写）' },
-      path: { type: 'string', description: '省略为自己的笔记；workspace.md 为共享笔记（只有队长能写）；<成员>.md 为队友笔记（只读）。可读本团队所有笔记，每个文件有大小上限' },
+      path: { type: 'string', description: '省略为自己的笔记；workspace.md 为共享笔记（只有队长能写）；<成员>.md 为队友笔记（只读）；records/… 为插件维护的记录（只读）。可读本团队所有笔记，每个文件有大小上限' },
+      start_line: { type: 'integer', description: 'read 的起始行（从 1 起，含）；大文件不给范围时只返回末尾一段' },
+      stop_line: { type: 'integer', description: 'read 的结束行（含）；省略为读到末尾，单次返回仍有字节上限' },
       content: { type: 'string', description: 'write / append 的内容（Markdown）' },
       query: { type: 'string', description: 'search 的字面字符串（区分大小写）' },
     },
