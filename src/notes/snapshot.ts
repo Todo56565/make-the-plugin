@@ -3,7 +3,7 @@
  *
  * - 换窗时、任务终态时各拍一份；与该 attempt 最新一份内容相同则不重拍；
  * - 位置：`records/teams/nanmi/<teamId>@<代>/<taskId>/a<attempt>/<seq>-<hash8>.md`，只读、只追加；
- * - 文件名不含 fileKey；归属与来源坐标记在同目录 `meta.jsonl`，每行一份快照：
+ * - 文件名不含 fileKey；归属与来源坐标记在同目录 `snapshot-index.jsonl`（快照索引），每行一份快照：
  *   `{ schema, file, fileKey, ref: "<sessionId>/w<n>/e<seq>", reason, at, bytes, hash }`。
  * 同一 attempt 目录内串行（进程内），保证序号连续。
  */
@@ -17,7 +17,7 @@ import { readFileSync } from 'node:fs'
 import type { TeamIdentity } from '../team/identity.ts'
 import { notesRootOf, ownNotePath, physicalNotePath } from './paths.ts'
 
-export const SNAPSHOT_META_FILE = 'meta.jsonl'
+export const SNAPSHOT_META_FILE = 'snapshot-index.jsonl'
 export const SNAPSHOT_META_SCHEMA = 1
 
 export type SnapshotReason = 'window' | 'terminal'
