@@ -1,7 +1,7 @@
 /** dsh-token-budget 的插件设置页（插件管理面板 → 本行 → 设置）。 */
 import type {} from '@deepseek-ai/dsh-client-ui-plugin-manager/client'
-import { useEffect, useId, type ReactNode } from 'react'
-import { Button, HoverCard, SettingsForm, SettingsValueField, Switch, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
+import { useEffect, useId, useState, type ReactNode } from 'react'
+import { Button, SettingsForm, SettingsValueField, Switch, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { HostObservable, InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { CatalogState } from './catalog.ts'
 import { NS, formLabels, type TokenBudgetKey } from './locales.ts'
@@ -32,6 +32,17 @@ function SwitchRow({ name, state, t, disabled, edit, extra }: {
     <Switch checked={state[name].text === 'true'} label={t(name)} disabled={disabled}
       onChange={(next) => { edit(name, next ? 'true' : 'false') }} />
   </div>
+}
+
+/** 「例如」：悬停或聚焦时在下方弹出示例，点击可固定。 */
+function ExamplePopover({ label, body }: { label: string; body: string }) {
+  const [hover, setHover] = useState(false)
+  const [pinned, setPinned] = useState(false)
+  return <span className={css.exampleWrap} onMouseEnter={() => { setHover(true) }} onMouseLeave={() => { setHover(false) }}>
+    <button type="button" className={css.example} aria-expanded={hover || pinned}
+      onClick={() => { setPinned(v => !v) }} onFocus={() => { setHover(true) }} onBlur={() => { setHover(false); setPinned(false) }}>{label}</button>
+    {(hover || pinned) && <pre className={css.exampleBody} role="tooltip">{body}</pre>}
+  </span>
 }
 
 function SelectField({ name, label, options, placeholder, state, t, disabled, edit, reset }: {
@@ -82,8 +93,7 @@ export function TokenBudgetSettings(props: TokenBudgetSettingsProps) {
   const countText = Number(state.mergeSnapshotCount.text), wsText = Number(state.workspaceMaxBytes.text)
   const sampleBytes = (Number.isInteger(countText) && countText > 0 ? countText : 5) * (Number.isInteger(wsText) && wsText > 0 ? wsText : 20000)
   const snapshotDir = `${state.stateDir.text === '' ? '.agent-teams' : state.stateDir.text}/.context/records/workspace-snapshots/`
-  const example = <HoverCard variant="preview" anchor={<span className={css.example} tabIndex={0}>{t('example')}</span>}
-    content={<pre className={css.exampleBody}>{t('recentTasksExample')}</pre>} />
+  const example = <ExamplePopover label={t('example')} body={t('recentTasksExample')} />
   const modeLabels: Record<typeof SNAPSHOT_MODES[number], TokenBudgetKey> = { off: 'snapshotsOff', cosine: 'snapshotsCosine', custom: 'snapshotsCustom' }
 
   const efforts = effortOptions(catalog.providers, provider, model, state.mergeReasoningEffort.text, unavailable)

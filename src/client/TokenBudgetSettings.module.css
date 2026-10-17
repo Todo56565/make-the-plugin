@@ -9,8 +9,11 @@
 .field select { min-height: 32px; border: 0.5px solid var(--dsw-alias-border-l4); border-radius: var(--dsw-radius-md); background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); padding: 0 8px; font: inherit; }
 .toolbar { display: flex; align-items: center; gap: 4px; }
 .notice { margin: 0; font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-secondary); }
-.title { margin: 12px 0 0; font-size: 14px; font-weight: 600; color: var(--dsw-alias-label-primary); }
+.title { margin: 16px 0 0; font-size: 16px; font-weight: 600; color: var(--dsw-alias-label-primary); }
 .subheading { margin: 4px 0 0; font-size: 12px; font-weight: 600; color: var(--dsw-alias-label-secondary); }
-.example { margin-left: 8px; font-size: 12px; color: var(--dsw-alias-label-secondary); text-decoration: underline dotted; cursor: help; }
-.exampleBody { margin: 0; padding: 8px 12px; max-width: 560px; font-size: 12px; line-height: 18px; white-space: pre-wrap; word-break: break-word; }
+.exampleWrap { position: relative; display: inline-block; margin-left: 8px; }
+.example { padding: 0; border: 0; background: none; font: inherit; font-size: 12px; color: var(--dsw-alias-label-secondary); text-decoration: underline dotted; cursor: help; }
+.exampleBody { position: absolute; top: calc(100% + 6px); left: 0; z-index: 10; width: min(560px, 70vw); max-height: 360px; overflow: auto; margin: 0; padding: 10px 12px;
+  border: 0.5px solid var(--dsw-alias-border-l4); border-radius: var(--dsw-radius-md); background: var(--dsw-alias-bg-base); box-shadow: 0 4px 16px rgb(0 0 0 / 12%);
+  font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-primary); white-space: pre-wrap; word-break: break-word; }
 .path { font-size: 12px; color: var(--dsw-alias-label-secondary); word-break: break-all; }
