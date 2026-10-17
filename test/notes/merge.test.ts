@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { TeamToolCalls, cleanMergeOutput, mergePendingBatch, type Generate } from '../../src/notes/merge.ts'
+import { TeamToolCalls, cleanMergeOutput, mergePendingBatch, readMergeCursor, type Generate } from '../../src/notes/merge.ts'
 import { addPending, readPending, type NewPendingEntry } from '../../src/notes/pending.ts'
 import { lockPath } from '../../src/context/layout.ts'
 import { NotesStore } from '../../src/notes/store.ts'
@@ -90,5 +90,32 @@ test('失败不删清单：超限、空输出、冲突；merge.lock 被占用时
   mkdirSync(dirname(held), { recursive: true })
   writeFileSync(held, JSON.stringify({ pid: 1, time: Date.now(), token: 'x' }))
   assert.equal((await mergePendingBatch(job(async () => 'ok'))).outcome, 'busy')
+  assert.equal((await readPending(stateRoot, A)).length, 1)
+})
+
+test('材料 a / b 进提示词；成功后记下合并时间；搁置的批次不调用模型', async () => {
+  const { stateRoot, snap, job } = setup()
+  await addPending(stateRoot, A, [entry('t1', 1)])
+  snap('t1', '结论')
+  assert.equal(await readMergeCursor(stateRoot), 0)
+  let since = -1
+  let seen = ''
+  const result = await mergePendingBatch({
+    ...job(async (_s, p) => { seen = p; return 'ok' }),
+    extras: async s => { since = s; return { recent: '全文条目 X', snapshots: [{ seq: 3, content: '旧版共享笔记' }] } },
+    now: () => 1234,
+  })
+  assert.equal(result.outcome, 'merged')
+  assert.equal(since, 0)
+  assert.match(seen, /<workspace.md 历史快照 #3（参考）>\n旧版共享笔记/)
+  assert.match(seen, /<近期任务记录（参考）>\n全文条目 X/)
+  assert.equal(await readMergeCursor(stateRoot), 1234)
+
+  await addPending(stateRoot, A, [entry('t2', 2)])
+  snap('t2', '再一条')
+  let called = false
+  const held = await mergePendingBatch({ ...job(async () => { called = true; return 'x' }), held: () => true })
+  assert.equal(held.outcome, 'held')
+  assert.equal(called, false)
   assert.equal((await readPending(stateRoot, A)).length, 1)
 })

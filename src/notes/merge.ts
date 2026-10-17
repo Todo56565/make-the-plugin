@@ -14,8 +14,12 @@
 import type { NotesStore } from './store.ts'
 import { WORKSPACE_NOTE } from './paths.ts'
 import { readPending, resolvePending, type PendingEntry, type PendingTeam } from './pending.ts'
-import { lockPath } from '../context/layout.ts'
+import { lockPath, zoneDir } from '../context/layout.ts'
 import { LockTimeoutError, withFileLock } from '../context/lock.ts'
+import { atomicWrite } from '../context/atomic.ts'
+import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { fitMaterials, type SnapshotMaterial } from './merge-materials.ts'
 
 /** 单次合并最多喂入的条目数。 */
 export const MERGE_BATCH_MAX = 8
@@ -57,6 +61,10 @@ export interface MergeInput {
   workspace: string
   notes: readonly MergeNote[]
   maxBytes: number
+  /** 材料 a：近期任务记录（全文条目原文）。 */
+  recent?: string
+  /** 材料 b：workspace.md 历史快照，旧→新。 */
+  snapshots?: readonly SnapshotMaterial[]
 }
 
 export const MERGE_SYSTEM = [
@@ -67,6 +75,7 @@ export const MERGE_SYSTEM = [
   '- 保留共享笔记里仍然有效的内容；与新结论冲突的旧内容改写为新结论',
   '- 去重、精简；不要抄写任务契约原文，不要记录过程性细节',
   '- 失败任务的笔记只取对全队有用的教训与未完成事项',
+  '- 如附有近期任务记录或 workspace.md 历史快照，它们只作参考：用来理解来龙去脉、找回被误删的长期内容；不要恢复已被新结论推翻的旧内容，不要照抄任务记录',
   '- 标注来源成员与任务 id，例如「（Alice，t3）」',
 ].join('\n')
 
@@ -81,6 +90,12 @@ export function mergePrompt(input: MergeInput): string {
     input.workspace === '' ? '（空）' : input.workspace,
     '</workspace.md 当前内容>',
   ]
+  for (const snap of input.snapshots ?? []) {
+    lines.push('', `<workspace.md 历史快照 #${snap.seq}（参考）>`, snap.content.trimEnd(), '</workspace.md 历史快照>')
+  }
+  if (input.recent !== undefined && input.recent !== '') {
+    lines.push('', '<近期任务记录（参考）>', input.recent.trimEnd(), '</近期任务记录>')
+  }
   for (const note of input.notes) {
     const subject = note.subject === '' ? '' : ` ${note.subject}`
     const attempt = note.attempt > 1 ? `，第 ${note.attempt} 次` : ''
@@ -107,12 +122,21 @@ export interface PendingMergeJob {
   generate: Generate
   signal: AbortSignal
   batchMax?: number
+  /** 可选材料 a / b；since 为上次成功合并的时间（毫秒，无记录为 0）。 */
+  extras?: (since: number) => Promise<{ recent: string; snapshots: SnapshotMaterial[] }>
+  /** 合并模型可用的输入预算（字节）；undefined 表示不知道窗口，不做保险。 */
+  budgetBytes?: () => Promise<number | undefined>
+  /** 返回 true 表示这一批（按 signature）已被搁置，本次不调用模型。 */
+  held?: (signature: string) => boolean
+  now?: () => number
 }
 
-export type MergeOutcome = 'merged' | 'nothing' | 'busy' | 'empty-output' | 'too-large' | 'conflict'
+export type MergeOutcome = 'merged' | 'nothing' | 'busy' | 'held' | 'empty-output' | 'too-large' | 'conflict'
 
 export interface MergeResult {
   outcome: MergeOutcome
+  /** 这一批的标识（本次选中喂入的条目 id，逗号连接）；没有可喂条目时为 ''。 */
+  signature?: string
   /** 本次喂入并已删除的条目 id（含快照为空直接删除的）。 */
   resolved: string[]
   /** 快照读不到、留在清单里的条目 id。 */
@@ -129,33 +153,58 @@ export async function mergePendingBatch(job: PendingMergeJob): Promise<MergeResu
   }
 }
 
+function cursorPath(stateRoot: string): string {
+  return join(zoneDir(stateRoot, 'state'), 'merge-cursor.json')
+}
+
+/** 上次成功合并的时间（毫秒）；无记录为 0。可重建缓存，丢了只影响材料 a 的起点。 */
+export async function readMergeCursor(stateRoot: string): Promise<number> {
+  try {
+    const v = (JSON.parse(await readFile(cursorPath(stateRoot), 'utf8')) as { lastMergedAt?: unknown }).lastMergedAt
+    return typeof v === 'number' && Number.isFinite(v) ? v : 0
+  } catch {
+    return 0
+  }
+}
+
 async function runBatch(job: PendingMergeJob): Promise<MergeResult> {
   // 持锁后再读清单：别的进程刚处理过的条目不会重复喂入
   const entries = [...await readPending(job.stateRoot, job.team)].sort((a, b) => a.at - b.at)
   const missing: string[] = []
   const empty: string[] = []
-  const fed: Array<{ entry: PendingEntry; content: string }> = []
+  const picked: Array<{ entry: PendingEntry; content: string }> = []
   for (const entry of entries) {
-    if (fed.length >= (job.batchMax ?? MERGE_BATCH_MAX)) break
+    if (picked.length >= (job.batchMax ?? MERGE_BATCH_MAX)) break
     const content = await job.store.read(entry.snapshot).catch(() => undefined)
     if (content === undefined) missing.push(entry.id)
     else if (content.trim() === '') empty.push(entry.id)
-    else fed.push({ entry, content: content.trim() })
+    else picked.push({ entry, content: content.trim() })
   }
-  const done = async (outcome: MergeOutcome, ids: string[]): Promise<MergeResult> => {
+  const done = async (outcome: MergeOutcome, ids: string[], signature?: string): Promise<MergeResult> => {
     if (ids.length > 0) await resolvePending(job.stateRoot, job.team, ids)
-    return { outcome, resolved: ids, missing }
+    return { outcome, resolved: ids, missing, signature }
   }
-  if (fed.length === 0) return done('nothing', empty)
-  const notes = fed.map(({ entry, content }) => ({ member: entry.member, taskId: entry.taskId, subject: entry.subject, status: entry.status, attempt: entry.attempt, content }))
+  if (picked.length === 0) return done('nothing', empty, '')
+  const signature = picked.map(p => p.entry.id).join(',')
+  if (job.held?.(signature) === true) return done('held', empty, signature)
+  const since = await readMergeCursor(job.stateRoot)
+  const extras = job.extras === undefined ? { recent: '', snapshots: [] } : await job.extras(since)
+  const budget = job.budgetBytes === undefined ? undefined : await job.budgetBytes()
   const maxBytes = job.store.maxBytesFor(WORKSPACE_NOTE)
+  const teamName = picked[0]!.entry.teamName
   for (let attempt = 0; attempt < 2; attempt++) {
     const before = await job.store.read(WORKSPACE_NOTE)
-    const raw = await job.generate(MERGE_SYSTEM, mergePrompt({ teamName: fed[0]!.entry.teamName, workspace: before ?? '', notes, maxBytes }), job.signal)
+    const fixed = Buffer.byteLength(MERGE_SYSTEM) + Buffer.byteLength(mergePrompt({ teamName, workspace: before ?? '', notes: [], maxBytes }))
+    const fit = fitMaterials({ notes: picked, recent: extras.recent, snapshots: extras.snapshots }, p => Buffer.byteLength(p.content) + 200, fixed, budget)
+    const notes = fit.notes.map(({ entry, content }) => ({ member: entry.member, taskId: entry.taskId, subject: entry.subject, status: entry.status, attempt: entry.attempt, content }))
+    const raw = await job.generate(MERGE_SYSTEM, mergePrompt({ teamName, workspace: before ?? '', notes, maxBytes, recent: fit.recent, snapshots: fit.snapshots }), job.signal)
     const next = cleanMergeOutput(raw)
-    if (next === '') return done('empty-output', empty)
-    if (Buffer.byteLength(next) > maxBytes) return done('too-large', empty)
-    if (await job.store.writeIf(WORKSPACE_NOTE, before, next) !== undefined) return done('merged', [...fed.map(f => f.entry.id), ...empty])
+    if (next === '') return done('empty-output', empty, signature)
+    if (Buffer.byteLength(next) > maxBytes) return done('too-large', empty, signature)
+    if (await job.store.writeIf(WORKSPACE_NOTE, before, next) !== undefined) {
+      await atomicWrite(cursorPath(job.stateRoot), `${JSON.stringify({ lastMergedAt: (job.now ?? Date.now)() })}\n`)
+      return done('merged', [...fit.notes.map(f => f.entry.id), ...empty], signature)
+    }
   }
-  return done('conflict', empty)
+  return done('conflict', empty, signature)
 }

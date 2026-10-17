@@ -33,8 +33,13 @@ import { TEAM_NOTES_TOOL, createStoreCache, registerTeamNotesTool } from './note
 import { ownNotePath } from './notes/paths.ts'
 import { sessionRef, snapshotOnWindowSwitch } from './notes/snapshot.ts'
 import { TeamToolCalls, mergePendingBatch, type Generate } from './notes/merge.ts'
-import { recordTerminalTasks, type LocateMember } from './records/full.ts'
+import { readFullEntriesSince, recordTerminalTasks, type LocateMember } from './records/full.ts'
+import { teamGenKey, workspaceSnapshotPath } from './context/layout.ts'
+import { readFile } from 'node:fs/promises'
 import { listPendingTeams } from './notes/pending.ts'
+import { cosineSample } from './notes/snapshot-sampling.ts'
+import { listWorkspaceSnapshots } from './notes/workspace-snapshot.ts'
+import { tokensToBytes, type SnapshotMaterial } from './notes/merge-materials.ts'
 import { listTeams } from './team/team-file.ts'
 import { stateRootOf, type TeamIdentity } from './team/identity.ts'
 import { FrozenText, NOTES_SECTION_ORDER, notesSectionText } from './prompt/notes-section.ts'
@@ -288,7 +293,7 @@ export function apply(ctx: Context, raw: Config): void {
   }), 'dsh-token-budget: rules section')
 
   // ── notes：工具（开关 notes，即时生效）──
-  const storeFor = createStoreCache(() => config.notesOptions.maxFileBytes, () => config.notesOptions.workspaceMaxBytes, () => ({ keep: config.notesOptions.workspaceSnapshotKeep }))
+  const storeFor = createStoreCache(() => config.notesOptions.maxFileBytes, () => config.notesOptions.workspaceMaxBytes, () => ({ keep: config.notesOptions.workspaceSnapshotKeep, pinned: new Set(config.notesMerge.snapshotPicks) }))
   registerNotesMerge(ctx, config, storeFor, logger, locateMember)
   switchable('dsh-token-budget: team_notes tool', () => config.notes, () => registerTeamNotesTool(ctx, {
     identityOf: agent => teams.identityOf(agent, true),
@@ -442,6 +447,12 @@ export function apply(ctx: Context, raw: Config): void {
 
 /** 合并单次调用超时。 */
 const MERGE_TIMEOUT_MS = 120_000
+/** 同一批连续失败多少次后搁置。 */
+const MERGE_MAX_FAILURES = 3
+/** 材料 a 上限。 */
+const MERGE_RECENT_MAX_BYTES = 16_000
+/** 上下文窗口保险的余量（token）。 */
+const MERGE_MARGIN_TOKENS = 2_048
 
 /** notesMerge：成员任务完成时，把其笔记合并进 workspace.md（开关与模型即时生效）。 */
 function registerNotesMerge(
@@ -507,6 +518,50 @@ function registerNotesMerge(
     })
   })
 
+  /** 每个团队代最近一批的连续失败（只在内存，插件重启清零）。 */
+  const failures = new Map<string, { signature: string; count: number }>()
+
+  /** 材料 a / b（按当下设置）。 */
+  async function mergeExtras(stateRoot: string, since: number): Promise<{ recent: string; snapshots: SnapshotMaterial[] }> {
+    const opts = config.notesMerge
+    const recent = opts.recentTasks ? await readFullEntriesSince(stateRoot, since, MERGE_RECENT_MAX_BYTES) : ''
+    let seqs: number[] = []
+    if (opts.snapshots !== 'off') {
+      const all = await listWorkspaceSnapshots(stateRoot)
+      if (opts.snapshots === 'custom') {
+        const have = new Set(all)
+        seqs = opts.snapshotPicks.filter(n => have.has(n))
+      } else {
+        // 最新一份不喂：余弦取样在 1..N−1 上
+        const older = all.slice(0, -1)
+        seqs = cosineSample(older.length, opts.snapshotCount).map(i => older[i - 1]!)
+      }
+    }
+    const snapshots: SnapshotMaterial[] = []
+    for (const seq of seqs) {
+      try {
+        snapshots.push({ seq, content: await readFile(workspaceSnapshotPath(stateRoot, seq), 'utf8') })
+      } catch { /* 读不到就少一份 */ }
+    }
+    return { recent, snapshots }
+  }
+
+  /** 合并模型的输入预算（字节）：上下文窗口 − 输出预留 − 余量；宿主报不出窗口时不做保险。 */
+  async function mergeBudgetBytes(): Promise<number | undefined> {
+    const { provider, model } = config.notesMerge
+    const llm = ctx.get('llm')
+    if (provider === undefined || model === undefined || llm === undefined) return undefined
+    try {
+      const info = await llm.resolveModelInfo(provider, model)
+      const window = info.context?.contextWindow
+      if (window === undefined || !(window > 0)) return undefined
+      const reserve = info.defaultMaxTokens ?? config.notesOptions.workspaceMaxBytes
+      return tokensToBytes(window - reserve - MERGE_MARGIN_TOKENS)
+    } catch {
+      return undefined
+    }
+  }
+
   /** 正在处理的状态根；处理中又被触发则处理完再来一轮。 */
   const draining = new Map<string, { again: boolean }>()
 
@@ -540,11 +595,23 @@ function registerNotesMerge(
             team,
             generate,
             signal: AbortSignal.any([lifetime.signal, AbortSignal.timeout(MERGE_TIMEOUT_MS)]),
+            extras: since => mergeExtras(stateRoot, since),
+            budgetBytes: () => mergeBudgetBytes(),
+            held: signature => (failures.get(teamGenKey(team.id, team.createdAt))?.signature === signature)
+              && failures.get(teamGenKey(team.id, team.createdAt))!.count >= MERGE_MAX_FAILURES,
           })
         } catch (error) {
           if (!lifetime.signal.aborted) logger.warn(`笔记合并失败（${team.id}）：${String(error)}`)
           break
         }
+        const gen = teamGenKey(team.id, team.createdAt)
+        if (result.outcome === 'empty-output' || result.outcome === 'too-large' || result.outcome === 'conflict') {
+          const prior = failures.get(gen)
+          const count = prior !== undefined && prior.signature === result.signature ? prior.count + 1 : 1
+          failures.set(gen, { signature: result.signature ?? '', count })
+          if (count === MERGE_MAX_FAILURES) logger.warn(`同一批待合并条目连续 ${count} 次合并未写入，暂停自动合并这一批，留给队长；清单变化或插件重启后再试（${team.id}）`)
+        } else if (result.outcome === 'merged' || result.outcome === 'nothing') failures.delete(gen)
+        if (result.outcome === 'held') break
         if (result.missing.length > 0) logger.warn(`待合并条目的快照读不到，留给队长处理（${team.id}）：${result.missing.join(', ')}`)
         if (result.outcome === 'busy') return
         if (result.outcome === 'merged') {

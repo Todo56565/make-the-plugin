@@ -30,6 +30,25 @@ export interface NotesMergeConfig {
   provider?: string
   model?: string
   reasoningEffort?: string
+  /** 材料 a：近期任务记录。 */
+  recentTasks: boolean
+  /** 材料 b：off / cosine / custom。 */
+  snapshots: MergeSnapshotMode
+  /** 材料 b 余弦取样份数。 */
+  snapshotCount: number
+  /** 材料 b 自定义编号（也是精简时额外保留的编号）。 */
+  snapshotPicks: number[]
+}
+
+export type MergeSnapshotMode = 'off' | 'cosine' | 'custom'
+
+/** 解析快照编号列表：逗号 / 空格 / 顿号分隔，只收正整数，去重升序。 */
+export function parseSnapshotPicks(text: string): number[] {
+  const out = new Set<number>()
+  for (const part of text.split(/[\s,，、]+/)) {
+    if (/^\d+$/.test(part) && Number(part) > 0) out.add(Number(part))
+  }
+  return [...out].sort((a, b) => a - b)
 }
 
 export interface NotesOptions {
@@ -95,6 +114,10 @@ export interface Config {
   mergeProvider: Volatile<string | undefined>
   mergeModel: Volatile<string | undefined>
   mergeReasoningEffort: Volatile<string | undefined>
+  mergeRecentTasks: Volatile<boolean>
+  mergeSnapshots: Volatile<string>
+  mergeSnapshotCount: Volatile<number>
+  mergeSnapshotPicks: Volatile<string>
   maxFileBytes: Volatile<number>
   workspaceMaxBytes: Volatile<number>
   readMaxBytes: Volatile<number>
@@ -134,6 +157,10 @@ export const Config = z.object({
   mergeProvider: z.string().description('合并使用的模型提供方').volatile(),
   mergeModel: z.string().description('合并使用的模型').volatile(),
   mergeReasoningEffort: z.string().description('合并使用的推理强度').volatile(),
+  mergeRecentTasks: z.boolean().default(false).description('合并材料 a：附上次合并以来的任务全文记录（至多 16000 字节，超出保留最新）').volatile(),
+  mergeSnapshots: z.string().default('off').description('合并材料 b（实验性）：off 关 / cosine 余弦取样 / custom 自定义编号').volatile(),
+  mergeSnapshotCount: z.natural().min(1).default(5).description('材料 b 余弦取样份数').volatile(),
+  mergeSnapshotPicks: z.string().default('').description('材料 b 自定义时喂入的快照编号（逗号分隔）；这些编号精简时一律保留').volatile(),
   maxFileBytes: z.natural().min(1).default(10_000).description('成员/队长单个笔记的字节上限').volatile(),
   workspaceMaxBytes: z.natural().min(1).default(20_000).description('workspace.md 的字节上限').volatile(),
   readMaxBytes: z.natural().min(1).default(24_000).description('读笔记/记录单次返回的字节上限；不给行范围读大文件时只返回末尾').volatile(),
@@ -176,6 +203,10 @@ export function toSettings(raw: Config | { [K in keyof Config]: unknown }): Sett
       provider: config.mergeProvider || undefined,
       model: config.mergeModel || undefined,
       reasoningEffort: config.mergeReasoningEffort || undefined,
+      recentTasks: config.mergeRecentTasks,
+      snapshots: config.mergeSnapshots === 'cosine' || config.mergeSnapshots === 'custom' ? config.mergeSnapshots : 'off',
+      snapshotCount: config.mergeSnapshotCount,
+      snapshotPicks: parseSnapshotPicks(config.mergeSnapshotPicks),
     },
     notesOptions: {
       maxFileBytes: config.maxFileBytes,

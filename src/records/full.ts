@@ -275,3 +275,37 @@ async function recordNow(stateRoot: string, teams: readonly TeamInfo[], now: num
   }
   return written
 }
+
+/**
+ * 合并材料 a：读出 `at` 晚于 since 的全文条目（各卷顺序即写入顺序），从最新往回取，总量不超过 maxBytes，
+ * 按旧→新拼接返回；最新一条单独就超出时截取其开头并标注。没有条目返回 ''。
+ */
+export async function readFullEntriesSince(stateRoot: string, since: number, maxBytes: number): Promise<string> {
+  const entries: string[] = []
+  for (const n of await volumes(stateRoot)) {
+    const text = await readFile(fullVolumePath(stateRoot, n), 'utf8')
+    const starts = [...text.matchAll(MARKER)]
+    for (let i = 0; i < starts.length; i++) {
+      const m = starts[i]!
+      let at: unknown
+      try { at = (JSON.parse(m[1]!) as { at?: unknown }).at } catch { continue }
+      if (typeof at !== 'number' || at <= since) continue
+      entries.push(text.slice(m.index, i + 1 < starts.length ? starts[i + 1]!.index : text.length))
+    }
+  }
+  const kept: string[] = []
+  let used = 0
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const size = Buffer.byteLength(entries[i]!)
+    if (used + size > maxBytes) {
+      if (kept.length === 0) {
+        const note = '\n（此条已截断）\n'
+        kept.unshift(Buffer.from(entries[i]!).subarray(0, Math.max(0, maxBytes - Buffer.byteLength(note))).toString('utf8').replace(/\uFFFD+$/, '') + note)
+      }
+      break
+    }
+    kept.unshift(entries[i]!)
+    used += size
+  }
+  return kept.join('')
+}
