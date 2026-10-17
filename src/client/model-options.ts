@@ -28,3 +28,10 @@ export function effortsOf(providers: readonly CatalogProvider[], provider: strin
 export function effortOptions(providers: readonly CatalogProvider[], provider: string, model: string, current: string, unavailable: (v: string) => string): Option[] {
   return withCurrent(effortsOf(providers, provider, model).map(e => ({ value: e.id, label: e.name })), current, unavailable)
 }
+
+/** 规范化编号文本：逗号/空格分隔的正整数，去重升序；不合格返回 undefined。 */
+export function normalizePicks(text: string): string | undefined {
+  const parts = text.split(/[,，\s]+/).filter(p => p !== '')
+  if (!parts.every(p => /^[1-9]\d*$/.test(p))) return undefined
+  return [...new Set(parts.map(Number))].sort((a, b) => a - b).join(',')
+}

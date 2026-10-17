@@ -114,3 +114,13 @@ test('w1 精简交接：身份 + 指针，不写任务和会变的元数据', ()
   ].join('\n'))
   assert.equal(initialHandoffText(member, { notes: false, history: true, teamHistory: false }, 4000).split('\n').length, 2)
 })
+
+test('常驻说明：成员记历史坐标；队长按合并开关提示清单，并给快照路径', () => {
+  assert.match(notesSectionText('member', { notes: true, history: true }), /w<n>\/e<seq>/)
+  assert.doesNotMatch(notesSectionText('member', { notes: true, history: false }), /w<n>|关键词/)
+  const off = notesSectionText('captain', { notes: true, history: true })
+  assert.match(off, /整理完一条就用 resolve 删掉/)
+  assert.match(off, /records\/workspace-snapshots\/.*000001\.md/)
+  assert.match(notesSectionText('captain', { notes: true, history: true, merge: true }), /由合并模型自动处理/)
+  assert.doesNotMatch(notesSectionText('member', { notes: true, history: true, merge: true }), /resolve|workspace-snapshots/)
+})

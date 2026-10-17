@@ -57,3 +57,5 @@
 4. **下游派单不静默丢依赖**：`formatDependencyOutputs`（`scheduler.ts:151-171`）单条超 2,000 字符会标 `[truncated]`，但合计超 12,000 字符时 `selected.slice(1)` 从最前面整条丢弃依赖，不留任何提示。建议列出被省略的依赖 id。
 
 我们这边：0.4.0 全文记录已补上「完整 output 可回查」；1、3、4 属上游，可与 3.1 一并整理成 issue。
+
+- workspace 快照编号看板：设置页列出现存快照（编号、时间、大小）勾选，替代 `mergeSnapshotPicks` 文本框；同时显示 records 占用。需要插件向客户端暴露数据接口，0.4.0 不做（2026-10-18）。

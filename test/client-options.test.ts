@@ -39,3 +39,12 @@ test('扁平配置换算与默认值', () => {
   assert.equal(toSettings({ ...Config({}), compactAtRatio: 0.01 } as never).budget.compactAtRatio, 0.03, '绕过 schema 的值也夹到最低值')
   assert.equal(toSettings(Config({ notesMerge: true, mergeProvider: 'ds', mergeModel: '' })).notesMerge.model, undefined)
 })
+
+test('normalizePicks：逗号/空格分隔正整数，去重升序；不合格返回 undefined', async () => {
+  const { normalizePicks } = await import('../src/client/model-options.ts')
+  assert.equal(normalizePicks('12, 5,1，5'), '1,5,12')
+  assert.equal(normalizePicks('3 7'), '3,7')
+  assert.equal(normalizePicks('0,2'), undefined)
+  assert.equal(normalizePicks('a'), undefined)
+  assert.equal(normalizePicks('1.5'), undefined)
+})

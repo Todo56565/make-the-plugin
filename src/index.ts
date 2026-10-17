@@ -282,9 +282,10 @@ export function apply(ctx: Context, raw: Config): void {
       const agent = assembly.agent
       if (agent === undefined) return ''
       try {
-        return sections.get(`${agent.id}:${config.notes}:${config.history}`, () => {
+        const merge = config.notesMerge.enabled && config.notesMerge.model !== undefined
+        return sections.get(`${agent.id}:${config.notes}:${config.history}:${merge}`, () => {
           const identity = teams.identityOf(agent)
-          return identity === undefined ? undefined : notesSectionText(identity.role, { notes: config.notes, history: config.history })
+          return identity === undefined ? undefined : notesSectionText(identity.role, { notes: config.notes, history: config.history, merge })
         })
       } catch (error) {
         logger.warn(`常驻说明生成失败：${String(error)}`)

@@ -1,12 +1,12 @@
 /** dsh-token-budget 的插件设置页（插件管理面板 → 本行 → 设置）。 */
 import type {} from '@deepseek-ai/dsh-client-ui-plugin-manager/client'
-import { useEffect, useId } from 'react'
-import { Button, SettingsForm, SettingsValueField, Switch, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
+import { useEffect, useId, type ReactNode } from 'react'
+import { Button, HoverCard, SettingsForm, SettingsValueField, Switch, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { HostObservable, InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { CatalogState } from './catalog.ts'
 import { NS, formLabels, type TokenBudgetKey } from './locales.ts'
 import { effortOptions, modelOptions, providerOptions, type Option } from './model-options.ts'
-import type { FieldName, TokenBudgetFormInjected, TokenBudgetFormState } from './settings-form.ts'
+import { SNAPSHOT_MODES, type FieldName, type TokenBudgetFormInjected, type TokenBudgetFormState } from './settings-form.ts'
 import css from './TokenBudgetSettings.module.css'
 
 export interface TokenBudgetSettingsInjected extends TokenBudgetFormInjected {
@@ -18,14 +18,15 @@ export type TokenBudgetSettingsProps = PropsRuntime<'plugins.row.config'> & Prop
 
 type T = (key: TokenBudgetKey, params?: Record<string, string>) => string
 
-function SwitchRow({ name, state, t, disabled, edit }: {
-  name: 'notes' | 'history' | 'teamHistory' | 'contextTool' | 'notesMerge'
+function SwitchRow({ name, state, t, disabled, edit, extra }: {
+  name: 'notes' | 'history' | 'teamHistory' | 'contextTool' | 'notesMerge' | 'mergeRecentTasks'
   state: TokenBudgetFormState; t: T; disabled: boolean; edit: (field: string, text: string) => void
+  extra?: ReactNode
 }) {
   const hint = `${name}Hint` as TokenBudgetKey
   return <div className={css.row}>
     <div className={css.text}>
-      <span className={css.label}>{t(name)}</span>
+      <span className={css.label}>{t(name)}{extra}</span>
       <p className={css.hint}>{t(hint)}</p>
     </div>
     <Switch checked={state[name].text === 'true'} label={t(name)} disabled={disabled}
@@ -59,7 +60,8 @@ export function TokenBudgetSettings(props: TokenBudgetSettingsProps) {
   const state = props.useTokenBudgetForm(value => value)
   const catalog = props.useModelCatalog(value => value)
   const ids = Object.fromEntries((['remindAtRatio', 'compactAtRatio', 'bucketStep', 'fallbackBufferTokens', 'maxFileBytes', 'workspaceMaxBytes', 'readMaxBytes', 'hintMaxBytes', 'hintRecentNotes',
-    'historyMaxResults', 'historyMaxReadChars', 'historyMaxListItems', 'stateDir'] as const).map(k => [k, `token-budget-${k}`]))
+    'historyMaxResults', 'historyMaxReadChars', 'historyMaxListItems', 'stateDir',
+    'mergeSnapshotCount', 'mergeSnapshotPicks', 'workspaceSnapshotKeep', 'recordsCleanupDays'] as const).map(k => [k, `token-budget-${k}`]))
   useEffect(() => { props.loadCatalog() }, [props.loadCatalog])
   const disabled = !state.writable || state.saving
   const edit = props.edit, reset = props.resetField
@@ -71,10 +73,18 @@ export function TokenBudgetSettings(props: TokenBudgetSettingsProps) {
   const editProvider = (field: string, text: string) => { edit(field, text); edit('mergeModel', ''); edit('mergeReasoningEffort', '') }
   const editModel = (field: string, text: string) => { edit(field, text); edit('mergeReasoningEffort', '') }
 
-  const value = (name: FieldName, labelKey: TokenBudgetKey, hintKey?: TokenBudgetKey, numeric = true) =>
-    <SettingsValueField key={name} id={ids[name]!} label={t(labelKey)} {...(hintKey === undefined ? {} : { hint: t(hintKey) })}
+  const value = (name: FieldName, labelKey: TokenBudgetKey, hintKey?: TokenBudgetKey, numeric = true, hintText?: string) =>
+    <SettingsValueField key={name} id={ids[name]!} label={t(labelKey)} {...(hintText !== undefined ? { hint: hintText } : hintKey === undefined ? {} : { hint: t(hintKey) })}
       {...state[name]} numeric={numeric} overriddenLabel={t('overridden')} resetLabel={t('reset')} invalidLabel={t('invalid')}
       disabled={disabled} onEdit={(text) => { edit(name, text) }} onReset={() => { reset(name) }} />
+
+  const snapshotMode = state.mergeSnapshots.text === '' ? 'off' : state.mergeSnapshots.text
+  const countText = Number(state.mergeSnapshotCount.text), wsText = Number(state.workspaceMaxBytes.text)
+  const sampleBytes = (Number.isInteger(countText) && countText > 0 ? countText : 5) * (Number.isInteger(wsText) && wsText > 0 ? wsText : 20000)
+  const snapshotDir = `${state.stateDir.text === '' ? '.agent-teams' : state.stateDir.text}/.context/records/workspace-snapshots/`
+  const example = <HoverCard variant="preview" anchor={<span className={css.example} tabIndex={0}>{t('example')}</span>}
+    content={<pre className={css.exampleBody}>{t('recentTasksExample')}</pre>} />
+  const modeLabels: Record<typeof SNAPSHOT_MODES[number], TokenBudgetKey> = { off: 'snapshotsOff', cosine: 'snapshotsCosine', custom: 'snapshotsCustom' }
 
   const efforts = effortOptions(catalog.providers, provider, model, state.mergeReasoningEffort.text, unavailable)
 
@@ -94,6 +104,7 @@ export function TokenBudgetSettings(props: TokenBudgetSettingsProps) {
       {value('fallbackBufferTokens', 'fallbackBufferTokens', 'fallbackBufferTokensHint')}
     </div>
     <div className={css.section}>
+      <h3 className={css.title}>{t('sectionWorkspace')}</h3>
       <h4 className={css.heading}>{t('sectionMerge')}</h4>
       <SwitchRow name="notesMerge" state={state} t={t} disabled={disabled || state.notes.text === 'false'} edit={edit} />
       {mergeOn && <>
@@ -110,7 +121,31 @@ export function TokenBudgetSettings(props: TokenBudgetSettingsProps) {
           <SelectField name="mergeReasoningEffort" label={t('mergeEffort')} placeholder={t('effortDefault')} state={state} t={t}
             disabled={disabled || model === ''} options={efforts} edit={edit} reset={reset} />}
         {model === '' && <p className={css.notice} role="status">{t('mergeNeedsModel')}</p>}
+        <h5 className={css.subheading}>{t('sectionMaterials')}</h5>
+        <SwitchRow name="mergeRecentTasks" state={state} t={t} disabled={disabled} edit={edit} extra={example} />
+        <div className={css.field}>
+          <div className={css.toolbar}>
+            <label htmlFor="token-budget-mergeSnapshots">{t('mergeSnapshots')}</label>
+            {state.mergeSnapshots.overridden && <><Tag tone="neutral">{t('overridden')}</Tag>
+              <Button size="sm" disabled={disabled} onClick={() => { reset('mergeSnapshots') }}>{t('reset')}</Button></>}
+          </div>
+          <select id="token-budget-mergeSnapshots" value={snapshotMode} disabled={disabled}
+            onChange={(event) => { edit('mergeSnapshots', event.target.value === 'off' ? '' : event.target.value) }}>
+            {SNAPSHOT_MODES.map(mode => <option key={mode} value={mode}>{t(modeLabels[mode])}</option>)}
+          </select>
+        </div>
+        {snapshotMode === 'cosine' && value('mergeSnapshotCount', 'mergeSnapshotCount', undefined, true, t('mergeSnapshotCountHint', { bytes: sampleBytes.toLocaleString() }))}
+        {snapshotMode === 'custom' && value('mergeSnapshotPicks', 'mergeSnapshotPicks', 'mergeSnapshotPicksHint', false)}
       </>}
+    </div>
+    <div className={css.section}>
+      <h4 className={css.heading}>{t('sectionSnapshots')}</h4>
+      {value('workspaceSnapshotKeep', 'workspaceSnapshotKeep', 'workspaceSnapshotKeepHint')}
+      <div className={css.text}>
+        <span className={css.label}>{t('snapshotDir')}</span>
+        <code className={css.path}>{snapshotDir}</code>
+      </div>
+      {value('recordsCleanupDays', 'recordsCleanupDays', 'recordsCleanupDaysHint')}
     </div>
     <div className={css.section}>
       <h4 className={css.heading}>{t('sectionLimits')}</h4>
