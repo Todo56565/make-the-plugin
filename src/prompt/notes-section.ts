@@ -26,7 +26,7 @@ export function notesSectionText(role: TeamRole, switches: SectionSwitches): str
     lines.push(`笔记${switches.history ? '和历史' : ''}是内部工作记录，不要在对外回复里提起。`)
     lines.push(role === 'captain'
       ? '你负责维护 workspace.md：汇总各成员笔记中对全队有用的结论。'
-      : 'workspace.md 由队长汇总；你主要写自己的笔记，可读本团队所有笔记。')
+      : 'workspace.md 由队长或合并模型维护，你不能写；把结论写进自己的笔记，可读本团队所有笔记。')
   } else if (switches.history) {
     lines.push('换窗后缺的细节用 history_* 回看；历史是内部工作记录，不要在对外回复里提起。')
   }

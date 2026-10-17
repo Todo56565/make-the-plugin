@@ -269,7 +269,7 @@ export function apply(ctx: Context, raw: Config): void {
   }), 'dsh-token-budget: rules section')
 
   // ── notes：工具（开关 notes，即时生效）──
-  const storeFor = createStoreCache(() => config.notesOptions.maxFileBytes)
+  const storeFor = createStoreCache(() => config.notesOptions.maxFileBytes, () => config.notesOptions.workspaceMaxBytes)
   registerNotesMerge(ctx, config, storeFor, logger)
   switchable('dsh-token-budget: team_notes tool', () => config.notes, () => registerTeamNotesTool(ctx, {
     identityOf: agent => teams.identityOf(agent, true),

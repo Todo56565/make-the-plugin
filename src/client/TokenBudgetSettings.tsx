@@ -58,7 +58,7 @@ export function TokenBudgetSettings(props: TokenBudgetSettingsProps) {
   const t = props.t as unknown as T
   const state = props.useTokenBudgetForm(value => value)
   const catalog = props.useModelCatalog(value => value)
-  const ids = Object.fromEntries((['remindAtRatio', 'compactAtRatio', 'bucketStep', 'fallbackBufferTokens', 'maxFileBytes', 'hintMaxBytes', 'hintRecentNotes',
+  const ids = Object.fromEntries((['remindAtRatio', 'compactAtRatio', 'bucketStep', 'fallbackBufferTokens', 'maxFileBytes', 'workspaceMaxBytes', 'hintMaxBytes', 'hintRecentNotes',
     'historyMaxResults', 'historyMaxReadChars', 'historyMaxListItems', 'stateDir'] as const).map(k => [k, `token-budget-${k}`]))
   useEffect(() => { props.loadCatalog() }, [props.loadCatalog])
   const disabled = !state.writable || state.saving
@@ -115,6 +115,7 @@ export function TokenBudgetSettings(props: TokenBudgetSettingsProps) {
     <div className={css.section}>
       <h4 className={css.heading}>{t('sectionLimits')}</h4>
       {value('maxFileBytes', 'maxFileBytes')}
+      {value('workspaceMaxBytes', 'workspaceMaxBytes')}
       {value('hintMaxBytes', 'hintMaxBytes', 'hintMaxBytesHint')}
       {value('hintRecentNotes', 'hintRecentNotes')}
       {value('historyMaxResults', 'historyMaxResults')}

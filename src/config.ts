@@ -33,8 +33,10 @@ export interface NotesMergeConfig {
 }
 
 export interface NotesOptions {
-  /** 单个笔记文件的字节上限（默认 10000）。 */
+  /** 成员/队长单个笔记的字节上限（默认 10000）。 */
   maxFileBytes: number
+  /** workspace.md 的字节上限（默认 20000）。 */
+  workspaceMaxBytes: number
   /** 换窗交接的字节上限（默认 4000，也是最低值）；超限先少列最近笔记，再截断过长的团队名/任务标题。 */
   hintMaxBytes: number
   /** 交接中列出的最近改动笔记数（默认 5）。 */
@@ -90,6 +92,7 @@ export interface Config {
   mergeModel: Volatile<string | undefined>
   mergeReasoningEffort: Volatile<string | undefined>
   maxFileBytes: Volatile<number>
+  workspaceMaxBytes: Volatile<number>
   hintMaxBytes: Volatile<number>
   hintRecentNotes: Volatile<number>
   historyMaxResults: Volatile<number>
@@ -125,7 +128,8 @@ export const Config = z.object({
   mergeProvider: z.string().description('合并使用的模型提供方').volatile(),
   mergeModel: z.string().description('合并使用的模型').volatile(),
   mergeReasoningEffort: z.string().description('合并使用的推理强度').volatile(),
-  maxFileBytes: z.natural().min(1).default(10_000).description('单个笔记文件的字节上限').volatile(),
+  maxFileBytes: z.natural().min(1).default(10_000).description('成员/队长单个笔记的字节上限').volatile(),
+  workspaceMaxBytes: z.natural().min(1).default(20_000).description('workspace.md 的字节上限').volatile(),
   hintMaxBytes: z.natural().min(HINT_MIN_BYTES).default(HINT_MIN_BYTES).description('换窗交接的字节上限（最低 4000）').volatile(),
   hintRecentNotes: z.natural().min(1).default(5).description('换窗交接列出的最近改动笔记数').volatile(),
   historyMaxResults: z.natural().min(1).default(200).description('搜索结果上限').volatile(),
@@ -167,6 +171,7 @@ export function toSettings(raw: Config | { [K in keyof Config]: unknown }): Sett
     },
     notesOptions: {
       maxFileBytes: config.maxFileBytes,
+      workspaceMaxBytes: config.workspaceMaxBytes,
       hintMaxBytes: Math.max(HINT_MIN_BYTES, config.hintMaxBytes),
       hintRecentNotes: config.hintRecentNotes,
     },

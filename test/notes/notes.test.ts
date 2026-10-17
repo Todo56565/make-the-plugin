@@ -49,7 +49,9 @@ test('team_notes：完整流程', async () => {
   const run = (args: { action: string; path?: string; content?: string; query?: string }) => runTeamNotes(args, me, store, 2)
   assert.match(await run({ action: 'list' }), /还没有任何笔记/)
   assert.match(await run({ action: 'write', content: '# 进度\n完成 t1' }), /已写入 teams\/team-a\/alice\.md（2 行/)
-  assert.match(await run({ action: 'append', path: 'workspace.md', content: '结论：用方案 B' }), /已追加 workspace\.md/)
+  await assert.rejects(run({ action: 'append', path: 'workspace.md', content: 'x' }), /成员不能写 workspace\.md/)
+  const captain = identity(root, 'captain', 'captain')
+  assert.match(await runTeamNotes({ action: 'append', path: 'workspace.md', content: '结论：用方案 B' }, captain, store, 2), /已追加 workspace\.md/)
   await assert.rejects(run({ action: 'write', path: 'bob.md', content: 'x' }), /只能写自己的笔记/)
   assert.equal(await run({ action: 'read' }), '# 进度\n完成 t1')
   assert.match(await run({ action: 'read', path: 'bob.md' }), /还不存在/)
@@ -59,4 +61,11 @@ test('team_notes：完整流程', async () => {
   await run({ action: 'append', content: 'a1\na2\na3' })
   assert.match(await run({ action: 'search', query: 'a' }), /已截断/)
   await assert.rejects(run({ action: 'drop' }), /未知 action/)
+})
+
+test('workspace.md 单独上限', async () => {
+  const store = new NotesStore(mkdtempSync(join(tmpdir(), 'lim-')), 10, undefined, 30)
+  await store.write('workspace.md', 'x'.repeat(25))
+  await assert.rejects(store.write('teams/team-a/alice.md', 'x'.repeat(25)), NoteSizeError)
+  await assert.rejects(store.write('workspace.md', 'x'.repeat(31)), /上限 30 字节/)
 })

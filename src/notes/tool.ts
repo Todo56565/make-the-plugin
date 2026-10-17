@@ -1,7 +1,7 @@
 /**
  * team_notes 工具：单工具多 action（list / read / write / append / search）。
  *
- * 读：本团队全部成员笔记 + workspace.md；写：仅自己的笔记 + workspace.md。
+ * 读：本团队全部成员笔记 + workspace.md；写：自己的笔记；workspace.md 只有队长能写（设计 0.4.0 §1-3，成员在工具层拒绝）。
  */
 
 import type { Context } from '@deepseek-ai/cordis'
@@ -24,7 +24,7 @@ export interface NotesToolDeps {
 }
 
 /** 按状态根 + 团队代复用 NotesStore（进程内写锁按物理路径共享）；首次使用某状态根时确保布局已迁移。 */
-export function createStoreCache(maxFileBytes: () => number): (identity: Pick<TeamIdentity, 'stateRoot' | 'team'>) => NotesStore {
+export function createStoreCache(maxFileBytes: () => number, workspaceMaxBytes: () => number = maxFileBytes): (identity: Pick<TeamIdentity, 'stateRoot' | 'team'>) => NotesStore {
   const stores = new Map<string, NotesStore>()
   return (identity) => {
     ensureLayoutSync(identity.stateRoot)
@@ -32,7 +32,7 @@ export function createStoreCache(maxFileBytes: () => number): (identity: Pick<Te
     const key = `${root}\0${identity.team.id}\0${identity.team.createdAt}`
     let store = stores.get(key)
     if (store === undefined) {
-      store = new NotesStore(root, maxFileBytes, { id: identity.team.id, createdAt: identity.team.createdAt })
+      store = new NotesStore(root, maxFileBytes, { id: identity.team.id, createdAt: identity.team.createdAt }, workspaceMaxBytes)
       stores.set(key, store)
     }
     return store
@@ -70,7 +70,8 @@ export async function runTeamNotes(
     case 'append': {
       const target = resolveNotePath(args.path, scope)
       if (!target.ok) throw new Error(target.error)
-      if (!target.own && !target.shared) throw new Error(`只能写自己的笔记（${ownNotePath(scope.teamId, scope.fileKey)}）或 workspace.md`)
+      if (target.shared && identity.role !== 'captain') throw new Error(`成员不能写 workspace.md（由队长或合并模型维护），请写进自己的笔记（${ownNotePath(scope.teamId, scope.fileKey)}）`)
+      if (!target.own && !target.shared) throw new Error(`只能写自己的笔记（${ownNotePath(scope.teamId, scope.fileKey)}）${identity.role === 'captain' ? '或 workspace.md' : ''}`)
       if (args.content === undefined) throw new Error(`${args.action} 需要 content`)
       const meta = args.action === 'write' ? await store.write(target.path, args.content) : await store.append(target.path, args.content)
       onWrite?.(meta)
@@ -93,10 +94,10 @@ export async function runTeamNotes(
 export function registerTeamNotesTool(ctx: Context, deps: NotesToolDeps): () => void {
   return ctx.tools.register(defineTool({
     name: TEAM_NOTES_TOOL,
-    description: '团队笔记，存在磁盘上，上下文压缩后不丢失。可写自己的笔记和 workspace.md，可读本团队所有笔记；单个文件有大小上限。',
+    description: '团队笔记，存在磁盘上，上下文压缩后不丢失。',
     parameters: {
       action: { type: 'string', enum: ['list', 'read', 'write', 'append', 'search'], required: true, description: 'list / read / write（全量重写）/ append / search（字面，区分大小写）' },
-      path: { type: 'string', description: '省略为自己的笔记；workspace.md 为共享笔记；<成员>.md 为队友笔记' },
+      path: { type: 'string', description: '省略为自己的笔记；workspace.md 为共享笔记（只有队长能写）；<成员>.md 为队友笔记（只读）。可读本团队所有笔记，每个文件有大小上限' },
       content: { type: 'string', description: 'write / append 的内容（Markdown）' },
       query: { type: 'string', description: 'search 的字面字符串（区分大小写）' },
     },

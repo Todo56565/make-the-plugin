@@ -38,7 +38,7 @@ test('常驻说明只放规则：不含路径、团队名、百分比；按角�
   assert.match(text, /## 团队笔记与换窗/)
   assert.match(text, /【交接】/)
   assert.match(text, /history_\*/)
-  assert.match(text, /workspace\.md 由队长汇总/)
+  assert.match(text, /workspace\.md 由队长或合并模型维护，你不能写/)
   assert.doesNotMatch(text, /teams\/|\d+%/)
   assert.match(notesSectionText('captain', { notes: true, history: true }), /你负责维护 workspace\.md/)
   assert.doesNotMatch(notesSectionText('member', { notes: false, history: true }), /team_notes/)

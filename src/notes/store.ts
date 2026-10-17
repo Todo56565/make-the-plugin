@@ -40,19 +40,28 @@ export class NotesStore {
   readonly root: string
   readonly team: NoteTeam | undefined
   private readonly limit: () => number
+  private readonly workspaceLimit: () => number
 
   /**
    * @param maxFileBytes 单文件上限；传函数时每次写入读取当下值（设置页可即时修改）。
    * @param team 团队代；省略时虚拟路径即物理路径（测试与旧调用）。
+   * @param workspaceMaxBytes workspace.md 的上限；省略时与 maxFileBytes 相同。
    */
-  constructor(root: string, maxFileBytes: number | (() => number), team?: NoteTeam) {
+  constructor(root: string, maxFileBytes: number | (() => number), team?: NoteTeam, workspaceMaxBytes?: number | (() => number)) {
     this.root = root
     this.team = team
     this.limit = typeof maxFileBytes === 'function' ? maxFileBytes : () => maxFileBytes
+    this.workspaceLimit = workspaceMaxBytes === undefined ? this.limit : typeof workspaceMaxBytes === 'function' ? workspaceMaxBytes : () => workspaceMaxBytes
   }
 
+  /** 成员/队长单笔记上限。 */
   get maxFileBytes(): number {
     return this.limit()
+  }
+
+  /** 某虚拟路径的上限：workspace.md 用 workspaceMaxBytes，其余用 maxFileBytes。 */
+  maxBytesFor(path: string): number {
+    return path === WORKSPACE_NOTE ? this.workspaceLimit() : this.limit()
   }
 
   private abs(path: string): string {
@@ -139,8 +148,9 @@ export class NotesStore {
 
   private async commit(path: string, content: string): Promise<NoteMeta> {
     const bytes = Buffer.byteLength(content)
-    if (bytes > this.maxFileBytes) {
-      throw new NoteSizeError(`写入后 ${path} 为 ${bytes} 字节，超过上限 ${this.maxFileBytes} 字节；请先精简（用 write 重写为更短的版本）`)
+    const max = this.maxBytesFor(path)
+    if (bytes > max) {
+      throw new NoteSizeError(`写入后 ${path} 为 ${bytes} 字节，超过上限 ${max} 字节；请先精简（用 write 重写为更短的版本）`)
     }
     const abs = this.abs(path)
     await mkdir(dirname(abs), { recursive: true })

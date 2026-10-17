@@ -6,7 +6,7 @@
  * - 后台执行，不阻塞对话；失败只告警
  * - 同一任务只合并一次
  * - 读 → 调模型 → 条件写入；期间 workspace.md 被改动则重试一次，仍冲突则放弃
- * - 结果超过 maxFileBytes 则放弃，不截断
+ * - 结果超过 workspace.md 上限（workspaceMaxBytes）则放弃，不截断
  */
 
 import type { NotesStore } from './store.ts'
@@ -143,11 +143,11 @@ export async function mergeMemberNote(job: MergeJob): Promise<MergeOutcome> {
       taskSubject: job.taskSubject,
       workspace: before ?? '',
       memberNote,
-      maxBytes: job.store.maxFileBytes,
+      maxBytes: job.store.maxBytesFor(WORKSPACE_NOTE),
     }), job.signal)
     const next = cleanMergeOutput(raw)
     if (next === '') return 'empty-output'
-    if (Buffer.byteLength(next) > job.store.maxFileBytes) return 'too-large'
+    if (Buffer.byteLength(next) > job.store.maxBytesFor(WORKSPACE_NOTE)) return 'too-large'
     if (await job.store.writeIf(WORKSPACE_NOTE, before, next) !== undefined) return 'merged'
   }
   return 'conflict'
