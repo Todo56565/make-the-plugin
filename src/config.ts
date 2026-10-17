@@ -130,7 +130,7 @@ export const Config = z.object({
   bucketStep: z.number().min(0.01).max(0.5).step(0.01).default(0.03).description('提醒档位步长').volatile(),
   fallbackBufferTokens: z.natural().min(1).default(16_384).description('成员到换窗点后补记笔记的额外额度（token）').volatile(),
   contextTool: z.boolean().default(true).description('注册 context_remaining 工具').volatile(),
-  notesMerge: z.boolean().default(false).description('成员任务完成时自动合并共享笔记；关闭时由队长维护 workspace.md').volatile(),
+  notesMerge: z.boolean().default(false).description('自动把待合并清单里的成员笔记快照合并进 workspace.md；关闭时由队长维护').volatile(),
   mergeProvider: z.string().description('合并使用的模型提供方').volatile(),
   mergeModel: z.string().description('合并使用的模型').volatile(),
   mergeReasoningEffort: z.string().description('合并使用的推理强度').volatile(),

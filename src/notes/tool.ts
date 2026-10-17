@@ -30,7 +30,7 @@ export interface NotesToolDeps {
 }
 
 /** 按状态根 + 团队代复用 NotesStore（进程内写锁按物理路径共享）；首次使用某状态根时确保布局已迁移。 */
-export function createStoreCache(maxFileBytes: () => number, workspaceMaxBytes: () => number = maxFileBytes, workspaceSnapshots?: () => WorkspaceSnapshotPolicy): (identity: Pick<TeamIdentity, 'stateRoot' | 'team'>) => NotesStore {
+export function createStoreCache(maxFileBytes: () => number, workspaceMaxBytes: () => number = maxFileBytes, workspaceSnapshots?: () => WorkspaceSnapshotPolicy): (identity: { stateRoot: string; team: { id: string; createdAt: number } }) => NotesStore {
   const stores = new Map<string, NotesStore>()
   return (identity) => {
     ensureLayoutSync(identity.stateRoot)

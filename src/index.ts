@@ -32,10 +32,10 @@ import { CompactionGate, compactionEngineOf, releaseSummarize, takeOverSummarize
 import { TEAM_NOTES_TOOL, createStoreCache, registerTeamNotesTool } from './notes/tool.ts'
 import { ownNotePath } from './notes/paths.ts'
 import { sessionRef, snapshotOnWindowSwitch } from './notes/snapshot.ts'
-import { TeamToolCalls, mergeMemberNote, type Generate } from './notes/merge.ts'
+import { TeamToolCalls, mergePendingBatch, type Generate } from './notes/merge.ts'
 import { recordTerminalTasks, type LocateMember } from './records/full.ts'
-import { resolvePendingByKey } from './notes/pending.ts'
-import { CAPTAIN_KEY, listTeams, sanitizeKey, type TeamInfo, type TeamTaskInfo } from './team/team-file.ts'
+import { listPendingTeams } from './notes/pending.ts'
+import { listTeams } from './team/team-file.ts'
 import { stateRootOf, type TeamIdentity } from './team/identity.ts'
 import { FrozenText, NOTES_SECTION_ORDER, notesSectionText } from './prompt/notes-section.ts'
 import { handoffText, initialHandoffText, listNoteMetasSync, ownNoteMtime, type OwnNoteState } from './prompt/handoff.ts'
@@ -497,46 +497,63 @@ function registerNotesMerge(
       logger.warn(`全文记录：读取团队状态失败（${stateRoot}）：${String(error)}`)
       return
     }
-    // 全文记录始终开启；合并只对本次新写入、已完成、执行者不是队长的任务触发
+    // 全文记录始终开启；合并以待合并清单为输入：清单非空就处理（含插件启动前积下的与已结束团队代的）
     void recordTerminalTasks(stateRoot, teams, Date.now(), locateMember).then(written => {
       if (written.length > 0) logger.info(`全文记录：新增 ${written.length} 条（${stateRoot}）`)
       const enabled = config.notes && config.notesMerge.enabled && config.notesMerge.model !== undefined
-      if (!enabled) return
-      const completed = written.filter(w => w.task.status === 'completed' && w.task.assignee !== undefined && w.task.assignee !== '' && w.task.assignee !== CAPTAIN_KEY)
-      startMerges(stateRoot, completed)
+      if (enabled) scheduleDrain(stateRoot)
     }, (error: unknown) => {
       if (!lifetime.signal.aborted) logger.warn(`全文记录失败（${stateRoot}）：${String(error)}`)
     })
   })
 
-  function startMerges(stateRoot: string, completed: ReadonlyArray<{ team: TeamInfo; task: TeamTaskInfo; key: string }>): void {
-    for (const { team, task, key } of completed) {
-      const memberName = task.assignee!
-      const fileKey = sanitizeKey(memberName)
-      const run = async () => {
-        const outcome = await mergeMemberNote({
-          store: storeFor({ stateRoot, team }),
-          teamId: team.id,
-          teamName: team.name,
-          memberName,
-          memberFileKey: fileKey,
-          taskId: task.id,
-          taskSubject: task.subject,
-          generate,
-          signal: AbortSignal.any([lifetime.signal, AbortSignal.timeout(MERGE_TIMEOUT_MS)]),
-        })
-        if (outcome === 'merged') {
-          logger.info(`已把 ${memberName} 的笔记合并进 workspace.md（${team.id} / ${task.id}）`)
-          await resolvePendingByKey(stateRoot, team, key)
+  /** 正在处理的状态根；处理中又被触发则处理完再来一轮。 */
+  const draining = new Map<string, { again: boolean }>()
+
+  function scheduleDrain(stateRoot: string): void {
+    const running = draining.get(stateRoot)
+    if (running !== undefined) {
+      running.again = true
+      return
+    }
+    const state = { again: false }
+    draining.set(stateRoot, state)
+    void (async () => {
+      do {
+        state.again = false
+        await drain(stateRoot)
+      } while (state.again && !lifetime.signal.aborted)
+    })().catch((error: unknown) => {
+      if (!lifetime.signal.aborted) logger.warn(`笔记合并失败（${stateRoot}）：${String(error)}`)
+    }).finally(() => draining.delete(stateRoot))
+  }
+
+  async function drain(stateRoot: string): Promise<void> {
+    for (const team of await listPendingTeams(stateRoot)) {
+      for (;;) {
+        if (lifetime.signal.aborted || !config.notesMerge.enabled) return
+        let result
+        try {
+          result = await mergePendingBatch({
+            stateRoot,
+            store: storeFor({ stateRoot, team }),
+            team,
+            generate,
+            signal: AbortSignal.any([lifetime.signal, AbortSignal.timeout(MERGE_TIMEOUT_MS)]),
+          })
+        } catch (error) {
+          if (!lifetime.signal.aborted) logger.warn(`笔记合并失败（${team.id}）：${String(error)}`)
+          break
         }
-        else if (outcome !== 'empty-note') logger.warn(`笔记合并未写入（${team.id} / ${task.id}）：${outcome}`)
+        if (result.missing.length > 0) logger.warn(`待合并条目的快照读不到，留给队长处理（${team.id}）：${result.missing.join(', ')}`)
+        if (result.outcome === 'busy') return
+        if (result.outcome === 'merged') {
+          logger.info(`已合并 ${result.resolved.length} 条待合并笔记进 workspace.md（${team.id}）`)
+          continue
+        }
+        if (result.outcome !== 'nothing') logger.warn(`笔记合并未写入（${team.id}）：${result.outcome}`)
+        break
       }
-      // 同一工作区的合并排队执行，减少 workspace.md 冲突
-      const prior = queue.get(stateRoot) ?? Promise.resolve()
-      const next = prior.then(run).catch((error: unknown) => {
-        if (!lifetime.signal.aborted) logger.warn(`笔记合并失败（${team.id} / ${task.id}）：${String(error)}`)
-      })
-      queue.set(stateRoot, next)
     }
   }
 }

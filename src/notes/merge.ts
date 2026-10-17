@@ -1,17 +1,26 @@
 /**
- * 共享笔记自动合并（设计 §7-3，开关 notesMerge.enabled，默认关）。
+ * 共享笔记自动合并（设计 0.4.0 决定 10–12、§5、§8 第 9 步；开关 notesMerge.enabled，默认关）。
  *
- * 触发：全文记录新写入的已完成成员任务（src/records/full.ts）。用用户选定的模型把该成员笔记合并进 workspace.md。
+ * 输入是待合并清单本身：每次取一个团队代清单里最早的至多 MERGE_BATCH_MAX 条，读各自指向的成员笔记快照
+ * （只读、不再变，不读成员当前活笔记），一次喂给合并模型。
  *
- * - 后台执行，不阻塞对话；失败只告警
- * - 同一任务只合并一次
- * - 读 → 调模型 → 条件写入；期间 workspace.md 被改动则重试一次，仍冲突则放弃
+ * - 读 → 调模型 → 条件写入 workspace.md；期间 workspace.md 被改动则重试一次，仍冲突则放弃
+ * - 只有条件写入成功后，才按本次实际喂入的条目 id 删除清单（删的即喂的；模型无须回报合并了哪些）
+ * - 快照为空的条目无可合并，直接删除；快照文件读不到的条目留在清单里交给队长，不喂入
  * - 结果超过 workspace.md 上限（workspaceMaxBytes）则放弃，不截断
+ * - 一批持跨进程锁 `shared/locks/merge.lock`；锁被别的进程持有时本次跳过，由持有者处理
  */
 
 import type { NotesStore } from './store.ts'
-import { CAPTAIN_KEY, type TeamInfo, type TeamTaskInfo } from '../team/team-file.ts'
-import { WORKSPACE_NOTE, ownNotePath } from './paths.ts'
+import { WORKSPACE_NOTE } from './paths.ts'
+import { readPending, resolvePending, type PendingEntry, type PendingTeam } from './pending.ts'
+import { lockPath } from '../context/layout.ts'
+import { LockTimeoutError, withFileLock } from '../context/lock.ts'
+
+/** 单次合并最多喂入的条目数。 */
+export const MERGE_BATCH_MAX = 8
+/** merge.lock 的过期判定：远大于单次合并超时，避免正常合并中被接管。 */
+const MERGE_LOCK_STALE_MS = 10 * 60_000
 
 /** 记录会话里尚未返回的 agent_teams_* 工具调用。 */
 export class TeamToolCalls {
@@ -34,41 +43,50 @@ export class TeamToolCalls {
   }
 }
 
+export interface MergeNote {
+  member: string
+  taskId: string
+  subject: string
+  status: string
+  attempt: number
+  content: string
+}
+
 export interface MergeInput {
   teamName: string
-  memberName: string
-  taskId: string
-  taskSubject?: string
   workspace: string
-  memberNote: string
+  notes: readonly MergeNote[]
   maxBytes: number
 }
 
 export const MERGE_SYSTEM = [
   '你负责维护一个多智能体团队的工作区共享笔记 workspace.md。',
-  '把某位成员刚完成任务后的个人笔记中，对全队有长期价值的内容（结论、决定、约定、坑、待办）合并进共享笔记。',
+  '把若干成员在任务结束时的个人笔记快照中，对全队有长期价值的内容（结论、决定、约定、坑、待办）合并进共享笔记。',
   '要求：',
   '- 输出合并后的完整 workspace.md 正文（Markdown），不要输出解释，不要用代码块包裹',
   '- 保留共享笔记里仍然有效的内容；与新结论冲突的旧内容改写为新结论',
   '- 去重、精简；不要抄写任务契约原文，不要记录过程性细节',
+  '- 失败任务的笔记只取对全队有用的教训与未完成事项',
   '- 标注来源成员与任务 id，例如「（Alice，t3）」',
 ].join('\n')
 
+const STATUS_TEXT: Record<string, string> = { completed: '已完成', failed: '失败' }
+
 export function mergePrompt(input: MergeInput): string {
-  return [
+  const lines = [
     `团队：${input.teamName}`,
-    `成员：${input.memberName}`,
-    `完成的任务：${input.taskId}${input.taskSubject === undefined ? '' : ` ${input.taskSubject}`}`,
     `合并结果不得超过 ${input.maxBytes} 字节（UTF-8）。`,
     '',
     '<workspace.md 当前内容>',
     input.workspace === '' ? '（空）' : input.workspace,
     '</workspace.md 当前内容>',
-    '',
-    '<成员笔记>',
-    input.memberNote,
-    '</成员笔记>',
-  ].join('\n')
+  ]
+  for (const note of input.notes) {
+    const subject = note.subject === '' ? '' : ` ${note.subject}`
+    const attempt = note.attempt > 1 ? `，第 ${note.attempt} 次` : ''
+    lines.push('', `<成员笔记快照 成员：${note.member}；任务：${note.taskId}${subject}（${STATUS_TEXT[note.status] ?? note.status}${attempt}）>`, note.content, '</成员笔记快照>')
+  }
+  return lines.join('\n')
 }
 
 /** 去掉模型可能加上的整体代码块包裹。 */
@@ -81,39 +99,63 @@ export function cleanMergeOutput(text: string): string {
 
 export type Generate = (system: string, prompt: string, signal: AbortSignal) => Promise<string>
 
-export interface MergeJob {
+export interface PendingMergeJob {
+  stateRoot: string
+  /** 映射到该团队代的笔记存储（读 records/… 快照、写 workspace.md）。 */
   store: NotesStore
-  teamId: string
-  teamName: string
-  memberName: string
-  memberFileKey: string
-  taskId: string
-  taskSubject?: string
+  team: PendingTeam
   generate: Generate
   signal: AbortSignal
+  batchMax?: number
 }
 
-export type MergeOutcome = 'merged' | 'empty-note' | 'empty-output' | 'too-large' | 'conflict'
+export type MergeOutcome = 'merged' | 'nothing' | 'busy' | 'empty-output' | 'too-large' | 'conflict'
 
-/** 执行一次合并。异常向上抛出，由调用方告警。 */
-export async function mergeMemberNote(job: MergeJob): Promise<MergeOutcome> {
-  const memberNote = (await job.store.read(ownNotePath(job.teamId, job.memberFileKey)))?.trim() ?? ''
-  if (memberNote === '') return 'empty-note'
+export interface MergeResult {
+  outcome: MergeOutcome
+  /** 本次喂入并已删除的条目 id（含快照为空直接删除的）。 */
+  resolved: string[]
+  /** 快照读不到、留在清单里的条目 id。 */
+  missing: string[]
+}
+
+/** 处理某团队代清单的一批。异常向上抛出，由调用方告警。 */
+export async function mergePendingBatch(job: PendingMergeJob): Promise<MergeResult> {
+  try {
+    return await withFileLock(lockPath(job.stateRoot, 'merge'), () => runBatch(job), { staleMs: MERGE_LOCK_STALE_MS, timeoutMs: 0 })
+  } catch (error) {
+    if (error instanceof LockTimeoutError) return { outcome: 'busy', resolved: [], missing: [] }
+    throw error
+  }
+}
+
+async function runBatch(job: PendingMergeJob): Promise<MergeResult> {
+  // 持锁后再读清单：别的进程刚处理过的条目不会重复喂入
+  const entries = [...await readPending(job.stateRoot, job.team)].sort((a, b) => a.at - b.at)
+  const missing: string[] = []
+  const empty: string[] = []
+  const fed: Array<{ entry: PendingEntry; content: string }> = []
+  for (const entry of entries) {
+    if (fed.length >= (job.batchMax ?? MERGE_BATCH_MAX)) break
+    const content = await job.store.read(entry.snapshot).catch(() => undefined)
+    if (content === undefined) missing.push(entry.id)
+    else if (content.trim() === '') empty.push(entry.id)
+    else fed.push({ entry, content: content.trim() })
+  }
+  const done = async (outcome: MergeOutcome, ids: string[]): Promise<MergeResult> => {
+    if (ids.length > 0) await resolvePending(job.stateRoot, job.team, ids)
+    return { outcome, resolved: ids, missing }
+  }
+  if (fed.length === 0) return done('nothing', empty)
+  const notes = fed.map(({ entry, content }) => ({ member: entry.member, taskId: entry.taskId, subject: entry.subject, status: entry.status, attempt: entry.attempt, content }))
+  const maxBytes = job.store.maxBytesFor(WORKSPACE_NOTE)
   for (let attempt = 0; attempt < 2; attempt++) {
     const before = await job.store.read(WORKSPACE_NOTE)
-    const raw = await job.generate(MERGE_SYSTEM, mergePrompt({
-      teamName: job.teamName,
-      memberName: job.memberName,
-      taskId: job.taskId,
-      taskSubject: job.taskSubject,
-      workspace: before ?? '',
-      memberNote,
-      maxBytes: job.store.maxBytesFor(WORKSPACE_NOTE),
-    }), job.signal)
+    const raw = await job.generate(MERGE_SYSTEM, mergePrompt({ teamName: fed[0]!.entry.teamName, workspace: before ?? '', notes, maxBytes }), job.signal)
     const next = cleanMergeOutput(raw)
-    if (next === '') return 'empty-output'
-    if (Buffer.byteLength(next) > job.store.maxBytesFor(WORKSPACE_NOTE)) return 'too-large'
-    if (await job.store.writeIf(WORKSPACE_NOTE, before, next) !== undefined) return 'merged'
+    if (next === '') return done('empty-output', empty)
+    if (Buffer.byteLength(next) > maxBytes) return done('too-large', empty)
+    if (await job.store.writeIf(WORKSPACE_NOTE, before, next) !== undefined) return done('merged', [...fed.map(f => f.entry.id), ...empty])
   }
-  return 'conflict'
+  return done('conflict', empty)
 }
