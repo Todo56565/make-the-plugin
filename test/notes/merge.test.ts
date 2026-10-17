@@ -3,24 +3,11 @@ import assert from 'node:assert/strict'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { CompletionTracker, TeamToolCalls, cleanMergeOutput, mergeMemberNote, type Generate } from '../../src/notes/merge.ts'
+import { TeamToolCalls, cleanMergeOutput, mergeMemberNote, type Generate } from '../../src/notes/merge.ts'
 import { NotesStore } from '../../src/notes/store.ts'
 import type { TeamInfo } from '../../src/team/team-file.ts'
 
 const team = (tasks: TeamInfo['tasks']): TeamInfo => ({ id: 'team-a', name: 'A 队', captainSessionId: 'c1', createdAt: 0, members: [], tasks })
-
-test('CompletionTracker：首次只建快照，之后报告新完成的成员任务', () => {
-  const tracker = new CompletionTracker()
-  assert.deepEqual(tracker.observe('/r', [team([{ id: 't1', subject: 'x', status: 'completed', assignee: 'Alice' }])]), [])
-  const found = tracker.observe('/r', [team([
-    { id: 't1', subject: 'x', status: 'completed', assignee: 'Alice' },
-    { id: 't2', subject: 'y', status: 'completed', assignee: 'Bob' },
-    { id: 't3', subject: 'z', status: 'completed', assignee: 'captain' },
-    { id: 't4', subject: 'w', status: 'in_progress', assignee: 'Bob' },
-  ])])
-  assert.deepEqual(found.map(f => f.task.id), ['t2'])
-  assert.deepEqual(tracker.observe('/r', [team([{ id: 't2', subject: 'y', status: 'completed', assignee: 'Bob' }])]), [])
-})
 
 test('TeamToolCalls：只认 agent_teams_* 调用的返回', () => {
   const calls = new TeamToolCalls()

@@ -27,7 +27,12 @@ export interface TeamTaskInfo {
   attemptId?: string
   /** 第几次执行（agent-teams 每次认领 +1；缺失为 0）。 */
   attempt: number
+  /** 终态结果字段（output / verdict / findings / changedPaths / commandsRun / acceptanceResults / updatedAt），原样保留，供全文记录。 */
+  details?: Record<string, unknown>
 }
+
+/** 全文记录保留的任务字段。 */
+export const TASK_DETAIL_KEYS = ['output', 'verdict', 'findings', 'changedPaths', 'commandsRun', 'acceptanceResults', 'updatedAt'] as const
 
 /** 本插件用到的团队字段。 */
 export interface TeamInfo {
@@ -65,6 +70,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+function detailsOf(raw: Record<string, unknown>): { details?: Record<string, unknown> } {
+  const details: Record<string, unknown> = {}
+  for (const key of TASK_DETAIL_KEYS) if (raw[key] !== undefined) details[key] = raw[key]
+  return Object.keys(details).length === 0 ? {} : { details }
+}
+
 /** 把 JSON 值收窄为 TeamInfo；不合格返回 undefined。 */
 export function coerceTeam(value: unknown, dirId: string): TeamInfo | undefined {
   if (!isRecord(value)) return undefined
@@ -84,6 +95,7 @@ export function coerceTeam(value: unknown, dirId: string): TeamInfo | undefined 
       ...(typeof raw.assignee === 'string' ? { assignee: raw.assignee } : {}),
       ...(typeof raw.attemptId === 'string' && raw.attemptId !== '' ? { attemptId: raw.attemptId } : {}),
       attempt: typeof raw.attempt === 'number' && Number.isSafeInteger(raw.attempt) && raw.attempt >= 0 ? raw.attempt : 0,
+      ...detailsOf(raw),
     })
   }
   return {

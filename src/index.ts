@@ -32,8 +32,9 @@ import { CompactionGate, compactionEngineOf, releaseSummarize, takeOverSummarize
 import { TEAM_NOTES_TOOL, createStoreCache, registerTeamNotesTool } from './notes/tool.ts'
 import { ownNotePath } from './notes/paths.ts'
 import { sessionRef, snapshotOnWindowSwitch } from './notes/snapshot.ts'
-import { CompletionTracker, TeamToolCalls, mergeMemberNote, type Generate } from './notes/merge.ts'
-import { listTeams, sanitizeKey } from './team/team-file.ts'
+import { TeamToolCalls, mergeMemberNote, type Generate } from './notes/merge.ts'
+import { recordTerminalTasks } from './records/full.ts'
+import { CAPTAIN_KEY, listTeams, sanitizeKey, type TeamInfo, type TeamTaskInfo } from './team/team-file.ts'
 import { stateRootOf, type TeamIdentity } from './team/identity.ts'
 import { FrozenText, NOTES_SECTION_ORDER, notesSectionText } from './prompt/notes-section.ts'
 import { handoffText, initialHandoffText, listNoteMetasSync, ownNoteMtime, type OwnNoteState } from './prompt/handoff.ts'
@@ -470,24 +471,37 @@ function registerNotesMerge(
     return text
   }
 
-  const tracker = new CompletionTracker()
   const calls = new TeamToolCalls()
+  /** 已补扫过全文的状态根（插件启动后每个状态根第一次出现时补记一次）。 */
+  const scannedRoots = new Set<string>()
   const queue = new Map<string, Promise<void>>()
 
   ctx.on('session/event', (session, event) => {
-    if (!calls.handle(session.id, event.type, (event as { data?: unknown }).data)) return
-    // 关闭时仍要更新快照，否则开启瞬间会把关闭期间完成的任务当成新完成
-    const enabled = config.notes && config.notesMerge.enabled && config.notesMerge.model !== undefined
+    const returned = calls.handle(session.id, event.type, (event as { data?: unknown }).data)
     const stateRoot = stateRootOf(session.header.cwd, config.stateDir)
+    const firstSeen = !scannedRoots.has(stateRoot)
+    if (!returned && !firstSeen) return
+    scannedRoots.add(stateRoot)
     let teams
     try {
       teams = listTeams(stateRoot)
     } catch (error) {
-      logger.warn(`笔记合并：读取团队状态失败（${stateRoot}）：${String(error)}`)
+      logger.warn(`全文记录：读取团队状态失败（${stateRoot}）：${String(error)}`)
       return
     }
-    const completed = tracker.observe(stateRoot, teams)
-    if (!enabled) return
+    // 全文记录始终开启；合并只对本次新写入、已完成、执行者不是队长的任务触发
+    void recordTerminalTasks(stateRoot, teams).then(written => {
+      if (written.length > 0) logger.info(`全文记录：新增 ${written.length} 条（${stateRoot}）`)
+      const enabled = config.notes && config.notesMerge.enabled && config.notesMerge.model !== undefined
+      if (!enabled) return
+      const completed = written.filter(w => w.task.status === 'completed' && w.task.assignee !== undefined && w.task.assignee !== '' && w.task.assignee !== CAPTAIN_KEY)
+      startMerges(stateRoot, completed)
+    }, (error: unknown) => {
+      if (!lifetime.signal.aborted) logger.warn(`全文记录失败（${stateRoot}）：${String(error)}`)
+    })
+  })
+
+  function startMerges(stateRoot: string, completed: ReadonlyArray<{ team: TeamInfo; task: TeamTaskInfo }>): void {
     for (const { team, task } of completed) {
       const memberName = task.assignee!
       const fileKey = sanitizeKey(memberName)
@@ -513,5 +527,5 @@ function registerNotesMerge(
       })
       queue.set(stateRoot, next)
     }
-  })
+  }
 }

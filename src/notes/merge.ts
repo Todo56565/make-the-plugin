@@ -1,7 +1,7 @@
 /**
  * 共享笔记自动合并（设计 §7-3，开关 notesMerge.enabled，默认关）。
  *
- * 触发：成员任务完成（见 CompletionTracker）。用用户选定的模型把该成员笔记合并进 workspace.md。
+ * 触发：全文记录新写入的已完成成员任务（src/records/full.ts）。用用户选定的模型把该成员笔记合并进 workspace.md。
  *
  * - 后台执行，不阻塞对话；失败只告警
  * - 同一任务只合并一次
@@ -12,41 +12,6 @@
 import type { NotesStore } from './store.ts'
 import { CAPTAIN_KEY, type TeamInfo, type TeamTaskInfo } from '../team/team-file.ts'
 import { WORKSPACE_NOTE, ownNotePath } from './paths.ts'
-
-/**
- * 识别「成员任务完成」。
- *
- * 当前宿主（0.2.0-rc.2）不认识 `agent-teams/*` 事件类型，agent-teams 会跳过写入，
- * 所以不能靠事件触发。改为：会话里每个 `agent_teams_*` 工具调用返回后重读 team.json，
- * 与上次快照比较，找出新变成 completed 且执行者不是队长的任务。
- * 某个团队第一次被观察到时只建快照，不触发合并（避免把插件加载前完成的任务重新合并）。
- */
-export interface CompletedTask {
-  team: TeamInfo
-  task: TeamTaskInfo
-}
-
-export class CompletionTracker {
-  private readonly snapshots = new Map<string, Set<string>>()
-
-  observe(stateRoot: string, teams: readonly TeamInfo[]): CompletedTask[] {
-    const fresh: CompletedTask[] = []
-    for (const team of teams) {
-      const key = `${stateRoot}\0${team.id}`
-      const completed = team.tasks.filter(t => t.status === 'completed')
-      const prior = this.snapshots.get(key)
-      if (prior !== undefined) {
-        for (const task of completed) {
-          if (!prior.has(task.id) && task.assignee !== undefined && task.assignee !== '' && task.assignee !== CAPTAIN_KEY) {
-            fresh.push({ team, task })
-          }
-        }
-      }
-      this.snapshots.set(key, new Set(completed.map(t => t.id)))
-    }
-    return fresh
-  }
-}
 
 /** 记录会话里尚未返回的 agent_teams_* 工具调用。 */
 export class TeamToolCalls {
