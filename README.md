@@ -133,7 +133,7 @@ make-the-plugin/
 │   ├── window/                    窗口投影（history 口径）、换窗状态与决策、context_new_window 工具
 │   ├── budget/                    占用计算、提醒与兜底文本、换窗压缩与 summarize() 接管
 │   ├── prompt/                    常驻规则 section、【交接】模板（完整版 / w1 精简版）
-│   ├── notes/                     笔记存储、team_notes 工具、可选自动合并
+│   ├── notes/                     笔记存储、team_notes 工具、成员笔记快照、待合并清单（shared/pending.jsonl → 虚拟 workspace.pending.md）、可选自动合并
 │   ├── history/                   persistence 只读读取、窗口索引、history 工具
 │   └── team-history/              团队信箱只读视图与 team_history 工具
 ├── test/                        单元测试（node --test），目录结构与 src/ 对应

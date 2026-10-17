@@ -18,6 +18,7 @@ import { atomicWrite } from '../context/atomic.ts'
 import { withFileLock } from '../context/lock.ts'
 import { CAPTAIN_KEY, sanitizeKey, type TeamInfo, type TeamTaskInfo } from '../team/team-file.ts'
 import { readSnapshotMetas, takeSnapshot, type SnapshotMeta } from '../notes/snapshot.ts'
+import { addPending } from '../notes/pending.ts'
 
 export const FULL_VOLUME_MAX_BYTES = 1024 * 1024
 export const FULL_ENTRY_MAX_BYTES = 32 * 1024
@@ -209,6 +210,9 @@ async function terminalRef(task: TeamTaskInfo, memberSessionId: string | undefin
   }
 }
 
+/** 进待合并清单的终态：完成与失败（取消多为改派，笔记会随该成员下一个终态再提交）。 */
+const PENDING_STATUSES = new Set(['completed', 'failed'])
+
 const chains = new Map<string, Promise<unknown>>()
 
 /**
@@ -254,6 +258,15 @@ async function recordNow(stateRoot: string, teams: readonly TeamInfo[], now: num
       const memberSessionId = item.team.members.find(m => m.name === item.task.assignee)?.id || undefined
       const ref = await terminalRef(item.task, memberSessionId, locate)
       const snapshots = await snapshotsFor(stateRoot, item.team, item.task, ref, now)
+      // 待合并清单：先于全文条目写入（按 key 幂等），崩溃重试不丢
+      const last = snapshots[snapshots.length - 1]
+      if (last !== undefined && PENDING_STATUSES.has(item.task.status)) {
+        await addPending(stateRoot, [{
+          key: item.key, teamId: item.team.id, createdAt: item.team.createdAt, teamName: item.team.name,
+          taskId: item.task.id, subject: item.task.subject, attempt: item.task.attempt,
+          member: item.task.assignee ?? '', status: item.task.status, snapshot: last.path, ref, at: now,
+        }])
+      }
       await appendEntry(stateRoot, renderFullEntry({ key: item.key, team: item.team, task: item.task, memberSessionId, snapshots, at: now }))
       written.push(item)
     }

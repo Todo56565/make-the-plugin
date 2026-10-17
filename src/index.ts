@@ -34,6 +34,7 @@ import { ownNotePath } from './notes/paths.ts'
 import { sessionRef, snapshotOnWindowSwitch } from './notes/snapshot.ts'
 import { TeamToolCalls, mergeMemberNote, type Generate } from './notes/merge.ts'
 import { recordTerminalTasks, type LocateMember } from './records/full.ts'
+import { resolvePendingByKey } from './notes/pending.ts'
 import { CAPTAIN_KEY, listTeams, sanitizeKey, type TeamInfo, type TeamTaskInfo } from './team/team-file.ts'
 import { stateRootOf, type TeamIdentity } from './team/identity.ts'
 import { FrozenText, NOTES_SECTION_ORDER, notesSectionText } from './prompt/notes-section.ts'
@@ -508,8 +509,8 @@ function registerNotesMerge(
     })
   })
 
-  function startMerges(stateRoot: string, completed: ReadonlyArray<{ team: TeamInfo; task: TeamTaskInfo }>): void {
-    for (const { team, task } of completed) {
+  function startMerges(stateRoot: string, completed: ReadonlyArray<{ team: TeamInfo; task: TeamTaskInfo; key: string }>): void {
+    for (const { team, task, key } of completed) {
       const memberName = task.assignee!
       const fileKey = sanitizeKey(memberName)
       const run = async () => {
@@ -524,7 +525,10 @@ function registerNotesMerge(
           generate,
           signal: AbortSignal.any([lifetime.signal, AbortSignal.timeout(MERGE_TIMEOUT_MS)]),
         })
-        if (outcome === 'merged') logger.info(`已把 ${memberName} 的笔记合并进 workspace.md（${team.id} / ${task.id}）`)
+        if (outcome === 'merged') {
+          logger.info(`已把 ${memberName} 的笔记合并进 workspace.md（${team.id} / ${task.id}）`)
+          await resolvePendingByKey(stateRoot, key)
+        }
         else if (outcome !== 'empty-note') logger.warn(`笔记合并未写入（${team.id} / ${task.id}）：${outcome}`)
       }
       // 同一工作区的合并排队执行，减少 workspace.md 冲突

@@ -2,6 +2,7 @@
  * team_notes 工具：单工具多 action（list / read / write / append / search）。
  *
  * 读：本团队全部成员笔记 + workspace.md；写：自己的笔记；workspace.md 只有队长能写（设计 0.4.0 §1-3，成员在工具层拒绝）。
+ * 待合并清单：虚拟 workspace.pending.md 只读，读 workspace.md 时附带；队长用 resolve 按 id 删除（设计 0.4.0 决定 10–12）。
  */
 
 import type { Context } from '@deepseek-ai/cordis'
@@ -12,6 +13,7 @@ import { notesRootOf, ownNotePath, resolveNotePath } from './paths.ts'
 import { sliceForRead } from './read-range.ts'
 import { NotesStore, type NoteMeta } from './store.ts'
 import { ensureLayoutSync } from '../context/migrate.ts'
+import { PENDING_NOTE, parseIds, readPending, renderPending, resolvePending } from './pending.ts'
 
 export const TEAM_NOTES_TOOL = 'team_notes'
 
@@ -48,7 +50,7 @@ function formatMeta(meta: NoteMeta): string {
 
 /** 执行一次 team_notes 调用，返回给模型的文本。纯逻辑，便于测试。 */
 export async function runTeamNotes(
-  args: { action: string; path?: string; content?: string; query?: string; start_line?: number; stop_line?: number },
+  args: { action: string; path?: string; content?: string; query?: string; ids?: string; start_line?: number; stop_line?: number },
   identity: TeamIdentity,
   store: NotesStore,
   maxResults: number,
@@ -56,23 +58,40 @@ export async function runTeamNotes(
   readMaxBytes?: number,
 ): Promise<string> {
   const scope = { teamId: identity.team.id, fileKey: identity.fileKey }
+  const pendingText = async () => renderPending(await readPending(identity.stateRoot), identity.team)
+  const isPending = (args.path ?? '').trim() === PENDING_NOTE
   switch (args.action) {
     case 'list': {
       const metas = await store.list(scope.teamId)
       const own = ownNotePath(scope.teamId, scope.fileKey)
-      if (metas.length === 0) return `还没有任何笔记。你的笔记：${own}；共享笔记：workspace.md`
-      return [`笔记（按修改时间倒序）。你的笔记：${own}`, ...metas.map(m => `- ${formatMeta(m)}`)].join('\n')
+      const pendingLine = `待合并清单：${PENDING_NOTE}（只读，读 workspace.md 时附带）`
+      if (metas.length === 0) return `还没有任何笔记。你的笔记：${own}；共享笔记：workspace.md；${pendingLine}`
+      return [`笔记（按修改时间倒序）。你的笔记：${own}`, ...metas.map(m => `- ${formatMeta(m)}`), pendingLine].join('\n')
     }
     case 'read': {
+      if (isPending) return pendingText()
       const target = resolveNotePath(args.path, scope)
       if (!target.ok) throw new Error(target.error)
       const text = await store.read(target.path)
-      if (text === undefined) return `${target.path} 还不存在。`
-      if (text === '') return `${target.path} 为空。`
-      return sliceForRead(target.path, text, args.start_line, args.stop_line, readMaxBytes)
+      const body = text === undefined ? `${target.path} 还不存在。`
+        : text === '' ? `${target.path} 为空。`
+        : sliceForRead(target.path, text, args.start_line, args.stop_line, readMaxBytes)
+      return target.shared ? `${body}\n\n---\n${await pendingText()}` : body
+    }
+    case 'resolve': {
+      if (identity.role !== 'captain') throw new Error(`只有队长能处理待合并清单（${PENDING_NOTE}）`)
+      const ids = parseIds(args.ids)
+      if (ids.length === 0) throw new Error('resolve 需要 ids')
+      const result = await resolvePending(identity.stateRoot, ids, e => e.teamId === identity.team.id && e.createdAt === identity.team.createdAt)
+      const parts: string[] = []
+      if (result.removed.length > 0) parts.push(`已从 ${PENDING_NOTE} 删除：${result.removed.map(e => e.id).join('、')}`)
+      if (result.denied.length > 0) parts.push(`不属于本团队、未删除：${result.denied.join('、')}`)
+      if (result.missing.length > 0) parts.push(`清单里没有：${result.missing.join('、')}`)
+      return parts.join('\n')
     }
     case 'write':
     case 'append': {
+      if (isPending) throw new Error(`${PENDING_NOTE} 由插件维护，只读；处理完的条目用 resolve 按 id 删除`)
       const target = resolveNotePath(args.path, scope)
       if (!target.ok) throw new Error(target.error)
       if (target.record) throw new Error(`${target.path} 是插件维护的记录，只读`)
@@ -102,12 +121,13 @@ export function registerTeamNotesTool(ctx: Context, deps: NotesToolDeps): () => 
     name: TEAM_NOTES_TOOL,
     description: '团队笔记，存在磁盘上，上下文压缩后不丢失。',
     parameters: {
-      action: { type: 'string', enum: ['list', 'read', 'write', 'append', 'search'], required: true, description: 'list / read / write（全量重写）/ append / search（字面，区分大小写）' },
-      path: { type: 'string', description: '省略为自己的笔记；workspace.md 为共享笔记（只有队长能写）；<成员>.md 为队友笔记（只读）；records/… 为插件维护的记录（只读）。可读本团队所有笔记，每个文件有大小上限' },
+      action: { type: 'string', enum: ['list', 'read', 'write', 'append', 'search', 'resolve'], required: true, description: 'list / read / write（全量重写）/ append / search（字面，区分大小写）/ resolve（队长按 id 删除待合并清单条目）' },
+      path: { type: 'string', description: '省略为自己的笔记；workspace.md 为共享笔记（只有队长能写，读取时附带待合并清单）；workspace.pending.md 为待合并清单（只读）；<成员>.md 为队友笔记（只读）；records/… 为插件维护的记录（只读）。可读本团队所有笔记，每个文件有大小上限' },
       start_line: { type: 'integer', description: 'read 的起始行（从 1 起，含）；大文件不给范围时只返回末尾一段' },
       stop_line: { type: 'integer', description: 'read 的结束行（含）；省略为读到末尾，单次返回仍有字节上限' },
       content: { type: 'string', description: 'write / append 的内容（Markdown）' },
       query: { type: 'string', description: 'search 的字面字符串（区分大小写）' },
+      ids: { type: 'string', description: 'resolve 要删除的清单条目 id，多个用逗号或空格分隔；处理完对应成员笔记后再删' },
     },
     output: {
       schema: {
