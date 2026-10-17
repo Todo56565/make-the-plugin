@@ -106,7 +106,7 @@ toolPolicies:
 
 只用 `deny`、或成员没选策略时，不需要处理。成员看不到 `team_notes` 时，到换窗点不兜底，直接换窗。
 
-运行时文件都在工作区 `.agent-teams/.context/` 下（agent-teams 默认把 `.agent-teams` 排除在交付审计之外）：`notes/`（在用笔记）、`shared/`（`workspace.md`、待合并清单、锁）、`records/`（全文、快照、已结束团队代）、`state/`（游标与序号）。物理路径按团队代分目录，模型看到的虚拟路径不变。0.3.0 的笔记首次运行时自动迁移。历史工具只读会话文件，不另存数据。
+运行时文件都在工作区 `.agent-teams/.context/` 下（agent-teams 默认把 `.agent-teams` 排除在交付审计之外）：`notes/`（在用笔记）、`shared/`（`workspace.md`、待合并清单、锁）、`records/`（全文、快照、已结束团队代）、`state/`（游标与序号）。物理路径按团队代分目录，模型看到的虚拟路径不变。历史工具只读会话文件，不另存数据。
 
 ## 可选：关闭会话文件压缩（实验）
 
@@ -140,7 +140,7 @@ make-the-plugin/
 │   ├── config.ts                  配置 schema（Schemastery）与默认值
 │   ├── team/                      团队身份解析、team.json 缓存读取
 │   ├── client/                    浏览器端设置页（DSH 插件管理面板 → 配置）：表单状态、模型目录下拉、中英文文案
-│   ├── context/                   `.context` 目录布局（各区路径、团队代、layout.json）、0.3.0 迁移、跨插件文件锁、原子写
+│   ├── context/                   `.context` 目录布局（各区路径、团队代）、跨插件文件锁、原子写
 │   ├── records/                   全文记录（终态任务追加到 records/full 分卷，游标缓存与重建、首次运行基线）；已结束团队代的发现、归档与按天清理
 │   ├── window/                    窗口投影（history 口径）、换窗状态与决策、context_new_window 工具
 │   ├── budget/                    占用计算、提醒与兜底文本、换窗压缩与 summarize() 接管

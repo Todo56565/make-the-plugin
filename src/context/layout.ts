@@ -3,7 +3,6 @@
  *
  * ```
  * <stateRoot>/.context/
- *   layout.json
  *   notes/      模型经 team_notes 写
  *   shared/     跨插件协议区
  *   records/    仅插件写，只追加，永久
@@ -11,15 +10,11 @@
  *   ext/<插件>/ 其他插件自留地
  * ```
  *
- * 这里只算路径，不碰文件（layout.json 读写除外）。
+ * 这里只算路径，不碰文件。
  */
 
-import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { atomicWrite } from './atomic.ts'
 
-/** 当前布局版本。0.3.0 的布局（无 layout.json）视为 1。 */
-export const LAYOUT_VERSION = 2
 /** 本插件支持的团队后端（NanmiCoder/dsh-agent-teams）。 */
 export const BACKEND_NANMI = 'nanmi'
 
@@ -114,35 +109,4 @@ export function sessionStatePath(stateRoot: string, sessionId: string): string {
 /** 其他插件自留地：`ext/<plugin>/` */
 export function extDir(stateRoot: string, plugin: string): string {
   return join(zoneDir(stateRoot, 'ext'), plugin)
-}
-
-export interface LayoutMigration {
-  from: number
-  to: number
-  /** 完成时间（毫秒）。 */
-  at: number
-}
-
-export interface LayoutFile {
-  version: number
-  migrations: LayoutMigration[]
-}
-
-export function layoutPath(stateRoot: string): string {
-  return join(contextRootOf(stateRoot), 'layout.json')
-}
-
-/** 读 layout.json；不存在或损坏返回 undefined（调用方按版本 1 处理）。 */
-export async function readLayout(stateRoot: string): Promise<LayoutFile | undefined> {
-  try {
-    const value = JSON.parse(await readFile(layoutPath(stateRoot), 'utf8')) as Partial<LayoutFile>
-    if (typeof value.version !== 'number' || !Number.isInteger(value.version)) return undefined
-    return { version: value.version, migrations: Array.isArray(value.migrations) ? value.migrations : [] }
-  } catch {
-    return undefined
-  }
-}
-
-export async function writeLayout(stateRoot: string, layout: LayoutFile): Promise<void> {
-  await atomicWrite(layoutPath(stateRoot), `${JSON.stringify(layout, null, 2)}\n`)
 }

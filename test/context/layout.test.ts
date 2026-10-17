@@ -1,11 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import {
-  LAYOUT_VERSION, attemptSnapshotDir, fullCursorPath, fullVolumePath, generationOf, notesTeamDir, parseTeamGenKey,
-  pendingPath, readLayout, snapshotFileName, teamGenKey, workspaceSnapshotPath, writeLayout,
+  attemptSnapshotDir, fullCursorPath, fullVolumePath, generationOf, notesTeamDir, parseTeamGenKey,
+  pendingPath, snapshotFileName, teamGenKey, workspaceSnapshotPath,
 } from '../../src/context/layout.ts'
 import { sanitizeKey } from '../../src/team/team-file.ts'
 
@@ -38,11 +36,4 @@ test('最长路径：相对状态根不超过 160 字符（给 Windows MAX_PATH 
   const file = join(dir, snapshotFileName(999, 'f'.repeat(64)))
   const rel = relative('/r', file)
   assert.ok(rel.length <= 160, `${rel.length}: ${rel}`)
-})
-
-test('layout.json：缺失返回 undefined，写后可读', async () => {
-  const root = mkdtempSync(join(tmpdir(), 'layout-'))
-  assert.equal(await readLayout(root), undefined)
-  await writeLayout(root, { version: LAYOUT_VERSION, migrations: [{ from: 1, to: 2, at: 5 }] })
-  assert.deepEqual(await readLayout(root), { version: 2, migrations: [{ from: 1, to: 2, at: 5 }] })
 })
