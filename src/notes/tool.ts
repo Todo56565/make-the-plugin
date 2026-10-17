@@ -12,6 +12,7 @@ import type { TeamIdentity } from '../team/identity.ts'
 import { notesRootOf, ownNotePath, resolveNotePath } from './paths.ts'
 import { sliceForRead } from './read-range.ts'
 import { NotesStore, type NoteMeta } from './store.ts'
+import type { WorkspaceSnapshotPolicy } from './workspace-snapshot.ts'
 import { ensureLayoutSync } from '../context/migrate.ts'
 import { PENDING_NOTE, parseIds, readPending, renderPending, resolvePending } from './pending.ts'
 
@@ -29,7 +30,7 @@ export interface NotesToolDeps {
 }
 
 /** 按状态根 + 团队代复用 NotesStore（进程内写锁按物理路径共享）；首次使用某状态根时确保布局已迁移。 */
-export function createStoreCache(maxFileBytes: () => number, workspaceMaxBytes: () => number = maxFileBytes): (identity: Pick<TeamIdentity, 'stateRoot' | 'team'>) => NotesStore {
+export function createStoreCache(maxFileBytes: () => number, workspaceMaxBytes: () => number = maxFileBytes, workspaceSnapshots?: () => WorkspaceSnapshotPolicy): (identity: Pick<TeamIdentity, 'stateRoot' | 'team'>) => NotesStore {
   const stores = new Map<string, NotesStore>()
   return (identity) => {
     ensureLayoutSync(identity.stateRoot)
@@ -37,7 +38,7 @@ export function createStoreCache(maxFileBytes: () => number, workspaceMaxBytes: 
     const key = `${root}\0${identity.team.id}\0${identity.team.createdAt}`
     let store = stores.get(key)
     if (store === undefined) {
-      store = new NotesStore(root, maxFileBytes, { id: identity.team.id, createdAt: identity.team.createdAt }, workspaceMaxBytes)
+      store = new NotesStore(root, maxFileBytes, { id: identity.team.id, createdAt: identity.team.createdAt }, workspaceMaxBytes, { stateRoot: identity.stateRoot, workspaceSnapshots })
       stores.set(key, store)
     }
     return store

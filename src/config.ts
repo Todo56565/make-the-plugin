@@ -39,6 +39,8 @@ export interface NotesOptions {
   workspaceMaxBytes: number
   /** team_notes read 单次返回的字节上限（默认 24000）。 */
   readMaxBytes: number
+  /** workspace.md 修改前快照保留份数：0 = 自动（全部保留）；否则累计到 100 份时按余弦精简到该份数。 */
+  workspaceSnapshotKeep: number
   /** 换窗交接的字节上限（默认 4000，也是最低值）；超限先少列最近笔记，再截断过长的团队名/任务标题。 */
   hintMaxBytes: number
   /** 交接中列出的最近改动笔记数（默认 5）。 */
@@ -96,6 +98,7 @@ export interface Config {
   maxFileBytes: Volatile<number>
   workspaceMaxBytes: Volatile<number>
   readMaxBytes: Volatile<number>
+  workspaceSnapshotKeep: Volatile<number>
   hintMaxBytes: Volatile<number>
   hintRecentNotes: Volatile<number>
   historyMaxResults: Volatile<number>
@@ -134,6 +137,7 @@ export const Config = z.object({
   maxFileBytes: z.natural().min(1).default(10_000).description('成员/队长单个笔记的字节上限').volatile(),
   workspaceMaxBytes: z.natural().min(1).default(20_000).description('workspace.md 的字节上限').volatile(),
   readMaxBytes: z.natural().min(1).default(24_000).description('读笔记/记录单次返回的字节上限；不给行范围读大文件时只返回末尾').volatile(),
+  workspaceSnapshotKeep: z.natural().default(0).description('workspace.md 修改前快照保留份数：0 为自动（全部保留）；否则累计到 100 份时按余弦精简到该份数（至少 2）').volatile(),
   hintMaxBytes: z.natural().min(HINT_MIN_BYTES).default(HINT_MIN_BYTES).description('换窗交接的字节上限（最低 4000）').volatile(),
   hintRecentNotes: z.natural().min(1).default(5).description('换窗交接列出的最近改动笔记数').volatile(),
   historyMaxResults: z.natural().min(1).default(200).description('搜索结果上限').volatile(),
@@ -177,6 +181,7 @@ export function toSettings(raw: Config | { [K in keyof Config]: unknown }): Sett
       maxFileBytes: config.maxFileBytes,
       workspaceMaxBytes: config.workspaceMaxBytes,
       readMaxBytes: config.readMaxBytes,
+      workspaceSnapshotKeep: config.workspaceSnapshotKeep,
       hintMaxBytes: Math.max(HINT_MIN_BYTES, config.hintMaxBytes),
       hintRecentNotes: config.hintRecentNotes,
     },

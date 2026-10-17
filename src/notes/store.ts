@@ -5,11 +5,22 @@
  * - 方法接收虚拟路径；构造时给出团队代则映射到物理位置，返回的 meta.path 仍是虚拟路径
  * - 超过 maxFileBytes 拒绝写入，不静默截断
  * - 搜索为区分大小写的字面包含
+ * - 给出 stateRoot 时，workspace.md 的写入持跨进程锁 `shared/locks/workspace.md.lock`，并在改动前拍快照（设计 0.4.0 决定 9）
  */
 
 import { mkdir, readdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { WORKSPACE_NOTE, physicalNotePath, type NoteTeam } from './paths.ts'
+import { lockPath } from '../context/layout.ts'
+import { withFileLock } from '../context/lock.ts'
+import { snapshotWorkspaceBefore, type WorkspaceSnapshotPolicy } from './workspace-snapshot.ts'
+
+export interface NotesStoreOptions {
+  /** 状态根；给出时 workspace.md 写入持跨进程锁并拍修改前快照。 */
+  stateRoot?: string
+  /** 快照保留策略（即时读取）；省略为自动（全部保留）。 */
+  workspaceSnapshots?: () => WorkspaceSnapshotPolicy
+}
 
 export interface NoteMeta {
   path: string
@@ -41,14 +52,16 @@ export class NotesStore {
   readonly team: NoteTeam | undefined
   private readonly limit: () => number
   private readonly workspaceLimit: () => number
+  private readonly options: NotesStoreOptions
 
   /**
    * @param maxFileBytes 单文件上限；传函数时每次写入读取当下值（设置页可即时修改）。
    * @param team 团队代；省略时虚拟路径即物理路径（测试与旧调用）。
    * @param workspaceMaxBytes workspace.md 的上限；省略时与 maxFileBytes 相同。
    */
-  constructor(root: string, maxFileBytes: number | (() => number), team?: NoteTeam, workspaceMaxBytes?: number | (() => number)) {
+  constructor(root: string, maxFileBytes: number | (() => number), team?: NoteTeam, workspaceMaxBytes?: number | (() => number), options: NotesStoreOptions = {}) {
     this.root = root
+    this.options = options
     this.team = team
     this.limit = typeof maxFileBytes === 'function' ? maxFileBytes : () => maxFileBytes
     this.workspaceLimit = workspaceMaxBytes === undefined ? this.limit : typeof workspaceMaxBytes === 'function' ? workspaceMaxBytes : () => workspaceMaxBytes
@@ -153,6 +166,10 @@ export class NotesStore {
       throw new NoteSizeError(`写入后 ${path} 为 ${bytes} 字节，超过上限 ${max} 字节；请先精简（用 write 重写为更短的版本）`)
     }
     const abs = this.abs(path)
+    const stateRoot = this.options.stateRoot
+    if (path === WORKSPACE_NOTE && stateRoot !== undefined) {
+      await snapshotWorkspaceBefore(stateRoot, await this.read(path), content, this.options.workspaceSnapshots?.() ?? { keep: 0 })
+    }
     await mkdir(dirname(abs), { recursive: true })
     const tmp = `${abs}.${process.pid}.${Date.now()}.tmp`
     await writeFile(tmp, content, 'utf8')
@@ -161,8 +178,12 @@ export class NotesStore {
     return { path, lines: countLines(content), bytes, mtimeMs: info.mtimeMs }
   }
 
-  private serialize<T>(path: string, task: () => Promise<T>): Promise<T> {
+  private serialize<T>(path: string, inner: () => Promise<T>): Promise<T> {
     const key = this.abs(path)
+    const stateRoot = this.options.stateRoot
+    const task = path === WORKSPACE_NOTE && stateRoot !== undefined
+      ? () => withFileLock(lockPath(stateRoot, 'workspace.md'), inner)
+      : inner
     const prior = locks.get(key) ?? Promise.resolve()
     const run = prior.then(task, task)
     const settled = run.catch(() => undefined)

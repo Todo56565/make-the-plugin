@@ -288,7 +288,7 @@ export function apply(ctx: Context, raw: Config): void {
   }), 'dsh-token-budget: rules section')
 
   // ── notes：工具（开关 notes，即时生效）──
-  const storeFor = createStoreCache(() => config.notesOptions.maxFileBytes, () => config.notesOptions.workspaceMaxBytes)
+  const storeFor = createStoreCache(() => config.notesOptions.maxFileBytes, () => config.notesOptions.workspaceMaxBytes, () => ({ keep: config.notesOptions.workspaceSnapshotKeep }))
   registerNotesMerge(ctx, config, storeFor, logger, locateMember)
   switchable('dsh-token-budget: team_notes tool', () => config.notes, () => registerTeamNotesTool(ctx, {
     identityOf: agent => teams.identityOf(agent, true),
