@@ -58,7 +58,7 @@ function SelectField({ name, label, options, placeholder, state, t, disabled, ed
       {field.overridden && <><Tag tone="neutral">{t('overridden')}</Tag>
         <Button size="sm" disabled={disabled} onClick={() => { reset(name) }}>{t('reset')}</Button></>}
     </div>
-    <select id={id} value={field.text} disabled={disabled} aria-invalid={field.invalid || undefined}
+    <select id={id} value={field.text} disabled={disabled} aria-invalid={field.invalid || undefined} className={field.text === '' ? css.empty : undefined}
       onChange={(event) => { edit(name, event.target.value) }}>
       <option value="">{placeholder}</option>
       {options.map(o => <option key={o.value} value={o.value} disabled={o.unavailable}>{o.label}</option>)}
@@ -79,6 +79,7 @@ export function TokenBudgetSettings(props: TokenBudgetSettingsProps) {
   const unavailable = (value: string) => t('unavailableOption', { value })
   const provider = state.mergeProvider.text, model = state.mergeModel.text
   const mergeOn = state.notesMerge.text === 'true'
+  const [snapshotsOpen, setSnapshotsOpen] = useState(false)
 
   // 级联：换提供方清空模型与推理强度；换模型清空推理强度
   const editProvider = (field: string, text: string) => { edit(field, text); edit('mergeModel', ''); edit('mergeReasoningEffort', '') }
@@ -133,19 +134,28 @@ export function TokenBudgetSettings(props: TokenBudgetSettingsProps) {
         {model === '' && <p className={css.notice} role="status">{t('mergeNeedsModel')}</p>}
         <h5 className={css.subheading}>{t('sectionMaterials')}</h5>
         <SwitchRow name="mergeRecentTasks" state={state} t={t} disabled={disabled} edit={edit} extra={example} />
-        <div className={css.field}>
+        <div className={css.disclosure}>
           <div className={css.toolbar}>
-            <label htmlFor="token-budget-mergeSnapshots">{t('mergeSnapshots')}</label>
+            <button type="button" className={css.summary} aria-expanded={snapshotsOpen} aria-controls="token-budget-snapshots-body"
+              onClick={() => { setSnapshotsOpen(v => !v) }}>
+              <span className={snapshotsOpen ? css.chevronOpen : css.chevron} aria-hidden="true">›</span>
+              <span className={css.label}>{t('mergeSnapshots')}</span>
+              {!snapshotsOpen && <span className={css.summaryValue}>{t(modeLabels[snapshotMode as typeof SNAPSHOT_MODES[number]] ?? 'snapshotsOff')}</span>}
+            </button>
             {state.mergeSnapshots.overridden && <><Tag tone="neutral">{t('overridden')}</Tag>
               <Button size="sm" disabled={disabled} onClick={() => { reset('mergeSnapshots') }}>{t('reset')}</Button></>}
           </div>
-          <select id="token-budget-mergeSnapshots" value={snapshotMode} disabled={disabled}
-            onChange={(event) => { edit('mergeSnapshots', event.target.value === 'off' ? '' : event.target.value) }}>
-            {SNAPSHOT_MODES.map(mode => <option key={mode} value={mode}>{t(modeLabels[mode])}</option>)}
-          </select>
+          {snapshotsOpen && <div id="token-budget-snapshots-body" className={css.disclosureBody}>
+            <div className={css.field}>
+              <select id="token-budget-mergeSnapshots" aria-label={t('mergeSnapshots')} value={snapshotMode} disabled={disabled}
+                onChange={(event) => { edit('mergeSnapshots', event.target.value === 'off' ? '' : event.target.value) }}>
+                {SNAPSHOT_MODES.map(mode => <option key={mode} value={mode}>{t(modeLabels[mode])}</option>)}
+              </select>
+            </div>
+            {snapshotMode === 'cosine' && value('mergeSnapshotCount', 'mergeSnapshotCount', undefined, true, t('mergeSnapshotCountHint', { bytes: sampleBytes.toLocaleString() }))}
+            {snapshotMode === 'custom' && value('mergeSnapshotPicks', 'mergeSnapshotPicks', 'mergeSnapshotPicksHint', false)}
+          </div>}
         </div>
-        {snapshotMode === 'cosine' && value('mergeSnapshotCount', 'mergeSnapshotCount', undefined, true, t('mergeSnapshotCountHint', { bytes: sampleBytes.toLocaleString() }))}
-        {snapshotMode === 'custom' && value('mergeSnapshotPicks', 'mergeSnapshotPicks', 'mergeSnapshotPicksHint', false)}
       </>}
     </div>
     <div className={css.section}>
