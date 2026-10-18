@@ -24,10 +24,10 @@ import { Config, refreshSettings, toSettings, validateConfig, type Settings } fr
 import { TeamDirectory, isTeamEvent } from './team/directory.ts'
 import { HANDOFF_SOURCE_KIND, handoffSentOf, needsInitialHandoff, registerWindowCounter, windowOf, type WindowInfo } from './window/counter.ts'
 import { SwitchStates, decide, freshnessOf, newWindowVerdict, ownNoteStateOf, type Freshness, type SwitchReason } from './window/state.ts'
-import { registerNewWindowTool } from './window/new-window-tool.ts'
+import { NEW_WINDOW_TOOL, registerNewWindowTool } from './window/new-window-tool.ts'
 import { captainLevels, levelOf, memberLevels, usageOf } from './budget/usage.ts'
 import { FALLBACK_PROMPT, captainReminderText, memberReminderText } from './budget/reminder.ts'
-import { registerContextRemainingTool } from './budget/tool.ts'
+import { CONTEXT_REMAINING_TOOL, registerContextRemainingTool } from './budget/tool.ts'
 import { CompactionGate, compactionEngineOf, releaseSummarize, takeOverSummarize } from './budget/compact.ts'
 import { TEAM_NOTES_TOOL, createStoreCache, registerTeamNotesTool } from './notes/tool.ts'
 import { ownNotePath } from './notes/paths.ts'
@@ -43,12 +43,13 @@ import { listWorkspaceSnapshots } from './notes/workspace-snapshot.ts'
 import { tokensToBytes, type SnapshotMaterial } from './notes/merge-materials.ts'
 import { listTeams } from './team/team-file.ts'
 import { stateRootOf, type TeamIdentity } from './team/identity.ts'
+import { resolveLeadIdentity, shouldHideTools, type HeaderLike } from './team/lineage.ts'
 import { FrozenText, NOTES_SECTION_ORDER, notesSectionText } from './prompt/notes-section.ts'
 import { handoffText, initialHandoffText, listNoteMetasSync, ownNoteMtime, type OwnNoteState } from './prompt/handoff.ts'
 import { HistorySource } from './history/source.ts'
 import { positionAt } from './history/model.ts'
-import { registerHistoryTools } from './history/tools.ts'
-import { registerTeamHistoryTool } from './team-history/tool.ts'
+import { HISTORY_TOOLS, registerHistoryTools } from './history/tools.ts'
+import { TEAM_HISTORY_TOOL, registerTeamHistoryTool } from './team-history/tool.ts'
 
 export { Config }
 export const name = 'dsh-token-budget'
@@ -71,6 +72,9 @@ declare module '@deepseek-ai/dsh-llm' {
     'dsh-token-budget/handoff': { kind: typeof HANDOFF_SOURCE_KIND; form: 'instructions' }
   }
 }
+
+/** 本插件的全部工具名（E1 隐藏用）。 */
+const OWN_TOOLS: readonly string[] = [TEAM_NOTES_TOOL, TEAM_HISTORY_TOOL, CONTEXT_REMAINING_TOOL, NEW_WINDOW_TOOL, ...HISTORY_TOOLS]
 
 export function apply(ctx: Context, raw: Config): void {
   const config = toSettings(raw)
@@ -253,6 +257,38 @@ export function apply(ctx: Context, raw: Config): void {
     order: BUDGET_CONTEXT_ORDER,
     text: budgetText,
   }), 'dsh-token-budget: budget context')
+
+  // ── 普通子会话隐藏本插件工具（0.5.0 E1）：创建时一次性决定，之后不变 ──
+  // 子会话不是成员、父会话也不是任何团队的队长（agent-teams teamLeadMatch 口径）时隐藏；读不到就保留。
+  const headerOf = async (sessionId: string): Promise<HeaderLike | undefined> => {
+    const live = ctx.agents.get(sessionId as never)?.session ?? ctx.sessions.get(sessionId as never)
+    if (live !== undefined) return live.header
+    try {
+      return (await ctx.sessionPersistence.stat(sessionId as never))?.header
+    } catch {
+      return undefined
+    }
+  }
+  // 同一会话的 Agent 可能重建（成员每轮、压缩后），按会话 id 记住第一次的决定，保持前缀不变
+  const hideDecisions = new Map<string, boolean>()
+  ctx.on('agent/created', async ({ agent }) => {
+    try {
+      const header = agent.session.header
+      if (header.parentSession === undefined) return
+      let hide = hideDecisions.get(agent.id)
+      if (hide === undefined) {
+        const parent = await resolveLeadIdentity(header.parentSession, headerOf)
+        const teams = listTeams(stateRootOf(header.cwd, config.stateDir))
+        hide = shouldHideTools({ child: { id: agent.id, header }, parent, teams })
+        hideDecisions.set(agent.id, hide)
+      }
+      if (!hide) return
+      const own = OWN_TOOLS.filter(name => ctx.tools.get(name) !== undefined)
+      if (own.length > 0) agent.ctx.tools.restrict({ deny: own })
+    } catch (error) {
+      logger.warn(`子会话工具隐藏判定失败（保留工具）：${String(error)}`)
+    }
+  })
 
   // ── w1 精简交接（0.5.0 E4）：w1 第一步在尾部追加一条 user 消息，只发一次 ──
   // 不放 runtime context：宿主把所有 context 拼成一段，任何一项变化都整段重发。
