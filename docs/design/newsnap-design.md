@@ -2,8 +2,12 @@
 
 > 状态：**草稿，待用户审**（2026-10-18）。未写实现代码、未做 PoC。
 > 定位：单独插件 newsnap（仓库 `Todo56565/newsnap`，目前为空；当前 GitHub 授权对它**只读、无 push 权限**，故草稿暂放本仓库），另对 dsh-token-budget 与 agent-teams 做少量适配。
-> 源码基线：deepseek-harness `dsh-v0.2.1-rc.2`（`687f282e`）、dsh-agent-teams `v0.1.25`（`cf11157`）、dsh-token-budget `40c3054`（含 0.5.0 E1/E4）。下文 `包/文件:行` 均指这些版本。
+> 源码基线：deepseek-harness `dsh-v0.2.1-rc.2`（`687f282e`）、dsh-agent-teams `v0.1.25`（`cf11157`）、dsh-token-budget `0b155a6`（含 0.5.0 E1 简化版/E4）。下文 `包/文件:行` 均指这些版本。
 > 构想与初步可行性见 [`future-council.md`](future-council.md)。
+> **方向约束**（用户 2026-10-18 定，见 `0.5.0.md` 策略行）：不改、不 fork agent-teams，也暂不做补丁插件；agent-teams 自身问题只写上游 issue（用户自己发）；主线只做好 dsh-token-budget，等官方 team 插件。对 newsnap 的含义：
+> - 只**读** agent-teams 状态，不打补丁；`.agent-teams/<teamId>/` 按不透明目录整体打包，只解析 team.json 的少数字段（成员与队长会话 id、任务状态、`createdAt`），字段对不上就拒绝拍照/恢复，而不是跟版适配。
+> - 对 dsh-token-budget 的适配只做「普通重启、任何回退工具都受益」的改动，不让它知道 newsnap 存在。
+> - **fork 归 newsnap**：E1 简化时用户定「fork 相关交给快照模块，避免代码打架」（0b155a6），dsh-token-budget 不再处理 fork（E1 不追祖先链，E4 `handoffSent` 不再声称 fork 继承）。
 
 ## 0. 结论先行
 
@@ -65,7 +69,7 @@
 | 状态 | 位置 | 影响 | 处理 |
 |---|---|---|---|
 | `SwitchStates`（fallback / newWindow / refused / lastWrite） | `src/window/state.ts:42`，`index.ts:109` | 兜底期间预算提示是 `FALLBACK_PROMPT`；待换窗；交接里「笔记是否最新」 | 落盘 |
-| E1 `hideDecisions` | `index.ts:273`（40c3054） | 普通子会话是否隐藏本插件工具，按会话 id 记第一次的决定；重启后按当时 team.json 与祖先链重算，可能不同 → **工具列表变，整段前缀缓存失效** | 落盘 |
+| E1 `hideDecisions` | `index.ts:263`（0b155a6） | 普通子会话是否隐藏本插件工具，按会话 id 记第一次的决定；重启后按当时 team.json 与直接父会话重算（0b155a6 起不追祖先链），可能不同 → **工具列表变，整段前缀缓存失效** | 落盘 |
 | `sections`（常驻说明 `FrozenText`） | `index.ts:112` | 取决于角色与开关，重启后通常相同 | 落盘冻结值（保险） |
 | w1 交接（E4） | pre-step 尾部消息 + 投影 `handoffSent`（eec7a8d） | 已写进日志、随重放恢复 | 无需处理 |
 | `CompactionGate.attempted` | `src/budget/compact.ts:19`，`index.ts:107` | 本窗口是否已试过压缩 | 落盘 |
@@ -181,7 +185,7 @@ DeepSeek 官方《Context Caching》（api-docs.deepseek.com/guides/kv_cache，2
 - **回退后的全文/清单去重**（§1c(2)，必须做，否则回退后的合并静默缺失）。两种做法，待定：
   - A. 去重键带 `attemptId`：`attemptId` 非空时用 `<teamId>@<代>:<taskId>:<attempt>:<attemptId 前 8 位>`，为空（取消、改派后被清空）时退回现键。改动小，也不需要知道 newsnap；但 0.4.0 当初正因 attemptId 会被清空才选了整数。
   - B. 共享协议区加「时间线」：newsnap 恢复时在 `shared/timeline/nanmi/<teamId>@<代>.json` 写分支号（从 0 递增），dsh-token-budget 把它并进键（`…:<attempt>~b<分支>`），并给全文追加一条「回退标记」条目，使旧时间线条目的坐标可辨。键稳定、可解释，但多一份跨插件协议。
-  - 我倾向 B。
+  - 按方向约束改为倾向 **A**：它对任何会话回退工具（单会话 rewind 插件也会造成 attempt 复用）都成立，dsh-token-budget 无需知道 newsnap；旧时间线条目坐标失效的问题，由 newsnap 在恢复时把失效坐标清单写进自己的救援点 manifest 说明，不写进全文。B 留作后备。
 
 ### 6.2 agent-teams（上游 issue，用户自己发）
 - 建议把 `parkedAttempts` 落盘（如 team.json 的 member 上记 `parkedAttemptId`），这样「重启 / 回退到有停靠 attempt 的时刻」不会被误判丢失。没有这项，newsnap 继续用 §3 的前置条件绕开。
@@ -240,5 +244,6 @@ DeepSeek 官方《Context Caching》（api-docs.deepseek.com/guides/kv_cache，2
 2. 有进行中任务时：本稿选「直接拒绝拍照」，而不是自动等待。
 3. 0.1 版用命令行 `newsnap apply` 停机恢复，能否接受？
 4. newsnap 仓库目前无 push 权限，是否给当前账号加权限，之后把本稿移过去？
-5. 回退后全文去重（§6.1）：A（键带 attemptId）还是 B（时间线分支号 + 回退标记）？
+5. 回退后全文去重（§6.1）：现倾向 A（键带 attemptId），同意吗？
 6. 工作区级的全文、workspace 快照不回退，`workspace.md` 内容回退但先拍一份快照（§1c 表），是否同意？
+7. fork 归 newsnap：用户在 DSH 里手动 fork 团队会话（队长或成员）时，被 fork 的会话算不算成员、要不要重发交接、快照是否收它——0.1 版只列为局限、不处理，可以吗？
