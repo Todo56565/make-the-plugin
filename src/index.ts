@@ -43,7 +43,7 @@ import { listWorkspaceSnapshots } from './notes/workspace-snapshot.ts'
 import { tokensToBytes, type SnapshotMaterial } from './notes/merge-materials.ts'
 import { listTeams } from './team/team-file.ts'
 import { stateRootOf, type TeamIdentity } from './team/identity.ts'
-import { resolveLeadIdentity, shouldHideTools, type HeaderLike } from './team/lineage.ts'
+import { shouldHideTools } from './team/tool-visibility.ts'
 import { FrozenText, NOTES_SECTION_ORDER, notesSectionText } from './prompt/notes-section.ts'
 import { handoffText, initialHandoffText, listNoteMetasSync, ownNoteMtime, type OwnNoteState } from './prompt/handoff.ts'
 import { HistorySource } from './history/source.ts'
@@ -258,36 +258,25 @@ export function apply(ctx: Context, raw: Config): void {
     text: budgetText,
   }), 'dsh-token-budget: budget context')
 
-  // ── 普通子会话隐藏本插件工具（0.5.0 E1）：创建时一次性决定，之后不变 ──
-  // 子会话不是成员、父会话也不是任何团队的队长（agent-teams teamLeadMatch 口径）时隐藏；读不到就保留。
-  const headerOf = async (sessionId: string): Promise<HeaderLike | undefined> => {
-    const live = ctx.agents.get(sessionId as never)?.session ?? ctx.sessions.get(sessionId as never)
-    if (live !== undefined) return live.header
-    try {
-      return (await ctx.sessionPersistence.stat(sessionId as never))?.header
-    } catch {
-      return undefined
-    }
-  }
+  // ── 普通子会话隐藏本插件工具（0.5.0 E1）：只看直接父会话是不是队长 ──
   // 同一会话的 Agent 可能重建（成员每轮、压缩后），按会话 id 记住第一次的决定，保持前缀不变
   const hideDecisions = new Map<string, boolean>()
-  ctx.on('agent/created', async ({ agent }) => {
+  ctx.on('agent/created', ({ agent }): undefined => {
     try {
       const header = agent.session.header
-      if (header.parentSession === undefined) return
+      if (header.parentSession === undefined) return undefined
       let hide = hideDecisions.get(agent.id)
       if (hide === undefined) {
-        const parent = await resolveLeadIdentity(header.parentSession, headerOf)
-        const teams = listTeams(stateRootOf(header.cwd, config.stateDir))
-        hide = shouldHideTools({ child: { id: agent.id, header }, parent, teams })
+        hide = shouldHideTools({ id: agent.id, header }, listTeams(stateRootOf(header.cwd, config.stateDir)))
         hideDecisions.set(agent.id, hide)
       }
-      if (!hide) return
+      if (!hide) return undefined
       const own = OWN_TOOLS.filter(name => ctx.tools.get(name) !== undefined)
       if (own.length > 0) agent.ctx.tools.restrict({ deny: own })
     } catch (error) {
       logger.warn(`子会话工具隐藏判定失败（保留工具）：${String(error)}`)
     }
+    return undefined
   })
 
   // ── w1 精简交接（0.5.0 E4）：w1 第一步在尾部追加一条 user 消息，只发一次 ──

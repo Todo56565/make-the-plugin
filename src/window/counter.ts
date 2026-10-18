@@ -8,8 +8,7 @@
  * 会话投影只记录每个摘要事件的 (seq, time)：投影按会话隔离、随日志重放，resume 后自动恢复；
  * 继承前缀在读取时按 `session.inheritedEventCount` 过滤（投影里拿不到它）。
  *
- * 同一投影还记录 w1 交接是否已发（0.5.0 E4）：交接是一条只发一次的 user 消息，
- * 继承前缀里的也算（fork 出来的会话已经带着它）。
+ * 同一投影还记录 w1 交接是否已发（0.5.0 E4）：交接是一条只发一次的 user 消息。
  */
 
 import type { Context } from '@deepseek-ai/cordis'
