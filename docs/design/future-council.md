@@ -49,3 +49,31 @@
 1. 调研 + 手工 PoC：停掉 DSH，用脚本拍快照/恢复，确认 w/e 一致、agent-teams 能接着跑、缓存命中；同时查清宿主卸载会话接口与插件 remote 接口。一次小团队真跑。
 2. 写设计文档。
 3. 实现：先 ①（重启后生效），再考虑 ②。
+
+## 附：给 agent-teams 的上游 issue 草稿（2026-10-18）
+
+> 与时间回溯无关，按用户要求暂存于此。发往 https://github.com/NanmiCoder/dsh-agent-teams/issues ，由用户发帖。依据见 `docs/reference/dsh-skill-mechanism-applications.md`。
+
+**标题**：建议：队长协议只在使用团队的会话里出现，普通会话不常驻
+
+版本：dsh-agent-teams 0.1.25，DSH 0.2.1-rc.2
+
+### 现象
+
+- `agent-teams:usage` 这个 system section 对所有非成员会话都返回完整的队长协议（`capabilities.js` 约 L96-100，正文为 `index.js` 的 `usageSectionText`，约 4.8K 字符）。普通对话、普通子代理（例如 explore 子会话）即使从不使用团队，每个请求也都带着它。
+- 14 个工具全局注册，只对成员禁用 10 个队长工具（`capabilities.js` 约 L84-87）。普通会话和普通子代理同样带着这 10 个工具的描述。
+
+### 我们理解的约束
+
+`installTeamCapabilities` 的注释写明：创建、归档团队都不能改写队长的 system/tools 前缀，因为任何普通会话之后都可能成为队长。下面的建议都不改动已发出的前缀。
+
+### 建议
+
+1. **协议改为激活时追加到尾部。** system section 只保留 `TEAM_ACTIVATION_PROMPT` 这一句（固定不变）。完整协议在 `agent/pre-step` 里追加为一条持久化的 user 消息：遇到 `/agent-teams` 手势（`command.js` 已有手势边界），或当前会话已经是某个团队的队长时追加一次；用自定义 `source.kind` 去重，压缩后不再可见时补发。做法与 DSH 自己的 `dsh-tool-skill` 发技能菜单相同：只往尾部追加，前缀不变，缓存不受影响。
+   也可以把协议注册为技能（`ctx.skills.register`），普通会话只多一行菜单。
+2. **普通子代理默认不带队长工具（可选配置）。** 在 `attach` 时一次性判定：子会话既不是成员、父会话也不是队长（按现有 `teamLeadMatch`）时，`restrict` 掉队长工具。若子会话按设计也允许自己建团队，可做成配置项，默认保持现状。
+3. 如果担心行为变化，第 1 条也可以先做成配置项（例如 `usagePrompt: 'eager' | 'lazy'`，默认 `eager`）。
+
+### 收益
+
+每个不用团队的会话和子代理，每个请求约少 4.8K 字符的 system 文本和 10 个工具描述；使用团队的会话行为不变。
