@@ -7,7 +7,7 @@
 > **方向约束**（用户 2026-10-18 定，见 `0.5.0.md` 策略行）：不改、不 fork agent-teams，也暂不做补丁插件；agent-teams 自身问题只写上游 issue（用户自己发）；主线只做好 dsh-token-budget，等官方 team 插件。对 newsnap 的含义：
 > - 只**读** agent-teams 状态，不打补丁；`.agent-teams/<teamId>/` 按不透明目录整体打包，只解析 team.json 的少数字段（成员与队长会话 id、任务状态、`createdAt`），字段对不上就拒绝拍照/恢复，而不是跟版适配。
 > - 对 dsh-token-budget 的适配只做「普通重启、任何回退工具都受益」的改动，不让它知道 newsnap 存在。
-> - **fork 归 newsnap**：E1 简化时用户定「fork 相关交给快照模块，避免代码打架」（0b155a6），dsh-token-budget 不再处理 fork（E1 不追祖先链，E4 `handoffSent` 不再声称 fork 继承）。
+> - **newsnap 替代 fork**（用户 10-18）：快照模块就是用来代替 fork 的，开着 newsnap 时用户不再点 fork。因此 dsh-token-budget 不处理 fork（0b155a6：E1 不追祖先链，E4 `handoffSent` 不声称 fork 继承），newsnap 也**不为 fork 做适配**：fork 出的会话不在任何快照范围内，按普通会话对待。
 
 ## 0. 结论先行
 
@@ -218,6 +218,7 @@ DeepSeek 官方《Context Caching》（api-docs.deepseek.com/guides/kv_cache，2
 ## 10. 已知局限
 
 - 需要重启 DSH，且要多一步命令行。
+- 不支持与宿主 fork 混用：fork 出的会话不进快照、不随恢复回退；用了 fork 后的行为不保证。
 - 用户自己的 `.git`（分支、提交、index）、`.gitignore` 排除的文件、超限大文件、工作区外的文件、外部副作用（已发的请求、部署、数据库）都不回退。
 - 有进行中任务、或成员停靠中时不能拍。
 - 同工作区多团队时只能整体回退工作区，需用户确认。
@@ -246,4 +247,4 @@ DeepSeek 官方《Context Caching》（api-docs.deepseek.com/guides/kv_cache，2
 4. newsnap 仓库目前无 push 权限，是否给当前账号加权限，之后把本稿移过去？
 5. 回退后全文去重（§6.1）：现倾向 A（键带 attemptId），同意吗？
 6. 工作区级的全文、workspace 快照不回退，`workspace.md` 内容回退但先拍一份快照（§1c 表），是否同意？
-7. fork 归 newsnap：用户在 DSH 里手动 fork 团队会话（队长或成员）时，被 fork 的会话算不算成员、要不要重发交接、快照是否收它——0.1 版只列为局限、不处理，可以吗？
+7. ~~fork 怎么算~~ 已定（10-18）：newsnap 替代 fork，开着它时不用 fork；不做 fork 适配，只列为局限。
