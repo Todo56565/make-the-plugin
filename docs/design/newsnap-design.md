@@ -37,24 +37,43 @@
 - 不按团队分的共享文件：`.agent-teams/retired-members.json`（`state.ts:55-56,297-335`，被移除成员的拒绝恢复名单）、`.agent-teams/archive/<teamId>/`（`state.ts:1165`）。
 - halt：`src/tools.ts:531-561`，把所有非终态任务 `cancelUnfinishedTask` 并置 `halted`。⇒ 不能当「拍照前暂停」用。
 - 成员会话是子代理会话（`header.origin === 'subagent'`，`api/session-controller/src/agent.ts:110-120`），由 agent-teams 冷恢复投递。
+- **attempt 编号会复用**：`beginTaskAttempt` 为 `attempt = (task.attempt ?? 0) + 1`（`src/state.ts:196`），只看 team.json。回退后重做同一任务，得到的 attempt 整数与「被丢弃的那条时间线」上的相同，只有 `attemptId`（UUID）不同。dsh-token-budget 0.4.0 全文与清单的唯一键正是 `<teamId>@<代>:<taskId>:<attempt>`（`0.4.0-workspace-notes.md` §3），见 §1c。
+- **同 id 新一代占位**（据 0.4.0 §2.1）：团队归档 = 整个目录移到 `archive/<teamId>/`，同 id 再归档会删上一代归档，归档后可重建同名团队（新 `createdAt` = 新代）。若快照之后本队已归档并重建同名团队，`.agent-teams/<teamId>/` 已被新一代占用，恢复不能直接覆盖：拒绝，提示先删除新一代团队。
 - **回退到有进行中任务的时刻**：重启后第一次 kick 会把它当丢失、开新 attempt 重派（attempt+1、新 attemptId），不是「回到那一刻」。因此拍照前置条件里排除这种状态（§3）。
 
-### 1c. dsh-token-budget 只在内存、影响请求文本的状态（`src/index.ts`）
+### 1c. dsh-token-budget（0.4.0 + 0.5.0，HEAD `40c3054`）
+
+**(1) `.context/` 不能整体回退。** 0.4.0 把 `.context/` 分成五区（`0.4.0-workspace-notes.md` §2.2），作用域不同：
+
+| 路径 | 作用域 | 不变量 | 回退处理 |
+|---|---|---|---|
+| `notes/teams/nanmi/<teamId>@<代>/` | 本团队代 | — | 回退 |
+| `records/teams/nanmi/<teamId>@<代>/`（成员笔记快照、`ended.json`、搬入的笔记） | 本团队代 | 被全文引用的快照永久保留 | 回退（见下「全文」） |
+| `shared/pending/nanmi/<teamId>@<代>.jsonl` | 本团队代 | 仅插件加行 | 回退 |
+| `notes/workspace.md` | 工作区（跨团队） | 每次修改前拍快照 | 内容回退，但当作一次「修改」：先按插件规则拍一份修改前快照 |
+| `records/workspace-snapshots/NNNNNN.md` + `state/workspace-snapshot-seq.json` | 工作区 | **编号永不复用**；`mergeSnapshotPicks` 钉住的编号额外保留 | **不回退**（整体回退会让编号重用、钉住的编号指向别的内容） |
+| `records/full/NNNN.md` | 工作区（所有团队） | 真追加、永久 | **不回退**（会抹掉其他团队的记录） |
+| `state/full-cursor.json` | 工作区 | 可重建缓存 | 恢复后删除，插件扫分卷重建 |
+| `state/merge-cursor.json` | 工作区 | 材料 a「上次成功合并以来」 | 不回退（偏差只影响材料 a 的范围） |
+| `state/sessions/<sessionId>.json`（§6.1 新增） | 会话 | — | 回退 |
+| `shared/locks/`、`ext/<其他插件>/` | — | — | 不动 |
+
+**(2) 全文去重键会撞。** 全文与待合并清单的唯一键是 `<teamId>@<代>:<taskId>:<attempt>`，去重以全文条目自带的键为准（`src/records/full.ts`）。全文不回退，而回退后重做的任务 attempt 整数与旧时间线相同（§1b）⇒ **新完成被当成已记过：既不进全文，也不进待合并清单，合并静默缺失**。需要 dsh-token-budget 适配（§6.1）。全文里旧时间线条目的 `<sessionId>/w<n>/e<seq>` 坐标，回退后会指向新内容，也要标明失效。
+
+**(3) 只在内存、影响请求文本的状态**
 
 | 状态 | 位置 | 影响 | 处理 |
 |---|---|---|---|
-| `SwitchStates.fallback` | `src/window/state.ts:41-70`，用于 `index.ts:240-241` | 兜底期间预算提示是 `FALLBACK_PROMPT`，重启后变回普通提示 | 落盘 |
-| `SwitchStates.newWindow / refused` | 同上 | 成员已请求换窗、尚未执行 | 落盘 |
-| `SwitchStates.lastWrite` | 同上，`index.ts:145-150` | 交接里「笔记是否最新」 | 落盘 |
-| `FrozenText`（常驻说明） | `index.ts` `sections` | 进程内首次算出即冻结；文本只取决于角色与开关，重启后通常相同 | 落盘冻结值（保险） |
-| E1 `hideDecisions` | `index.ts` `agent/created` 监听（40c3054） | 普通子会话是否隐藏本插件工具，按会话 id 记第一次的决定，**只在进程内**；重启后按当时的 team.json 与祖先链重算，可能与第一次不同 → **工具列表变化，整段前缀缓存失效** | 落盘 |
-| w1 交接（0.5.0 E4 后） | `agent/pre-step` 尾部消息 + 投影 `handoffSent`（eec7a8d） | 已写进日志、随重放恢复 | **无需处理** |
-| `CompactionGate` / `compact.ts` 的 `attempted` | `src/budget/compact.ts:19-20` | 本窗口是否已尝试过压缩，重启后可能再试一次 | 落盘 |
-| 合并失败计数 `failures` | `index.ts:532` | 只影响外接合并模型，不影响成员请求 | 不管 |
-| `switching`、`TeamDirectory` 缓存 | `index.ts:104,99` | 瞬时 | 不管 |
-| 笔记 mtime | `src/prompt/handoff.ts:46-49`、`notes/store.ts:98` | 新鲜度、「最近改动的笔记」排序 | 恢复时还原 mtime |
+| `SwitchStates`（fallback / newWindow / refused / lastWrite） | `src/window/state.ts:42`，`index.ts:109` | 兜底期间预算提示是 `FALLBACK_PROMPT`；待换窗；交接里「笔记是否最新」 | 落盘 |
+| E1 `hideDecisions` | `index.ts:273`（40c3054） | 普通子会话是否隐藏本插件工具，按会话 id 记第一次的决定；重启后按当时 team.json 与祖先链重算，可能不同 → **工具列表变，整段前缀缓存失效** | 落盘 |
+| `sections`（常驻说明 `FrozenText`） | `index.ts:112` | 取决于角色与开关，重启后通常相同 | 落盘冻结值（保险） |
+| w1 交接（E4） | pre-step 尾部消息 + 投影 `handoffSent`（eec7a8d） | 已写进日志、随重放恢复 | 无需处理 |
+| `CompactionGate.attempted` | `src/budget/compact.ts:19`，`index.ts:107` | 本窗口是否已试过压缩 | 落盘 |
+| 合并搁置计数 `failures` | `index.ts:575` | 只影响外接合并，重启即清（0.4.0 §8 第 9 步已定只在内存） | 不管 |
+| `TeamToolCalls`、`scannedRoots`、`switching`、`TeamDirectory` 缓存 | `index.ts:129,538-541,111,106` | 瞬时；`scannedRoots` 让重启后首次事件补扫全文与结束代 | 不管 |
+| 笔记 mtime | `src/prompt/handoff.ts:40-49`、`notes/store.ts:98`（物理路径已改为按团队代分目录） | 新鲜度、「最近改动的笔记」排序 | 恢复时还原 mtime |
 
-宿主侧机制（说明为什么落盘就够）：系统提示与运行时上下文都写进日志，重放后与新渲染比较，相同不产生事件（`core/agent-loop/src/runtime-context.ts:65-103`、`:113-155`）。所以只要插件重渲染的文本与当时一致，恢复后第一次请求与原时间线逐字相同；不一致时：system 文本在支持的路由上**追加到尾部**（不破坏前缀缓存，但 e 会多一号），否则替换首条（整段缓存失效）；runtime context 是所有 context 拼成的一段快照，任一项变化整段在尾部重发（见 0.5.0 E4 的分析）；**工具列表**变化则整段前缀失效，最严重。
+宿主侧机制（说明为什么落盘就够）：系统提示与运行时上下文都写进日志，重放后与新渲染比较，相同不产生事件（`core/agent-loop/src/runtime-context.ts:65-103`、`:113-155`）。所以只要插件重渲染的文本与当时一致，恢复后第一次请求与原时间线逐字相同；不一致时：system 文本在支持的路由上**追加到尾部**（不破坏前缀缓存，但 e 会多一号），否则替换首条（整段缓存失效）；runtime context 是所有 context 拼成的一段快照，任一项变化整段在尾部重发（0.5.0 E4 的分析）；**工具列表**变化则整段前缀失效，最严重。
 
 ### 1d. 插件能否给客户端挂接口
 
@@ -80,11 +99,11 @@ DeepSeek 官方《Context Caching》（api-docs.deepseek.com/guides/kv_cache，2
 |---|---|
 | 会话 | 队长会话、`team.json` 里全部成员会话，以及以它们为祖先的子代理会话（按 `header.parentSession` 递归，同工作区项目目录内） |
 | 团队状态 | `.agent-teams/<teamId>/` 整个目录；`archive/<teamId>/`（若有）；`retired-members.json` 中**本队成员 id** 的有无 |
-| 插件状态 | `.agent-teams/.context/` 整个目录（笔记、workspace.md 及其快照、pending、records、state） |
+| 插件状态 | dsh-token-budget `.context/` 中本团队代的部分 + `workspace.md` 内容 + 本队会话的 `state/sessions/*`；工作区级的全文、workspace 快照与编号**不回退**（§1c 表） |
 | 工作区产物 | 影子 Git 一个提交 + mtime 清单 |
 | 宿主缓存 | 不入快照；恢复时删除这些会话的投影缓存记录 |
 
-**选择**：`.context/` 与 `workspace.md` 是工作区级（跨团队），工作区文件更是。只回退一个团队却保留别人改动做不到。规则定为：快照记录「当时工作区内的其他活动团队与它们的会话」；恢复时若发现快照之后**有其他团队或非本队会话**写过工作区（§4.1 检查），拒绝恢复并列出原因，用户可勾选「仍然恢复」。不做按团队拆分合并（复杂且易错）。
+**选择**：`workspace.md` 是工作区级（跨团队），工作区文件更是。只回退一个团队却保留别人改动做不到。规则定为：快照记录「当时工作区内的其他活动团队与它们的会话」；恢复时若发现快照之后**有其他团队或非本队会话**写过工作区（§4.1 检查），拒绝恢复并列出原因，用户可勾选「仍然恢复」。不做按团队拆分合并（复杂且易错）。
 
 ### 2.2 存放位置与格式
 
@@ -94,7 +113,7 @@ DeepSeek 官方《Context Caching》（api-docs.deepseek.com/guides/kv_cache，2
   snaps/<snapId>/
     manifest.json                 见下
     sessions/<sessionId>/<代文件名>  会话日志原样复制
-    agent-teams.tar               .agent-teams/<teamId>、archive/<teamId>、.context（tar，保留 mtime）
+    agent-teams.tar               .agent-teams/<teamId>、archive/<teamId>、.context 中按 §1c 表需回退的部分（tar，保留 mtime）
   pending-restore.json            已登记、待执行的恢复
   rescue/<时间>/                  恢复前的救援点（结构同 snaps）
 ```
@@ -138,7 +157,7 @@ DeepSeek 官方《Context Caching》（api-docs.deepseek.com/guides/kv_cache，2
 
 1. 对每个涉及会话 `flock session.lock`；任一拿不到 = DSH 仍在运行，退出并报错，不做任何修改。
 2. 建救援点：当前的会话目录、`.agent-teams` 相关部分、影子提交（当前工作区）——即「恢复前一刻」也是一份可恢复的快照。
-3. 替换：会话目录内换成快照的代文件（删除更高编号的代）；快照后新增的本队会话整目录移入救援点；解 tar 覆盖 `.agent-teams/<teamId>`、`archive/<teamId>`、`.context/`；改 `retired-members.json` 中本队 id；工作区 `git restore` + 删除新增文件 + 还原 mtime。
+3. 替换：会话目录内换成快照的代文件（删除更高编号的代）；快照后新增的本队会话整目录移入救援点；解 tar 覆盖 `.agent-teams/<teamId>`、`archive/<teamId>` 与 `.context/` 中本团队代的部分；`workspace.md` 先拍修改前快照（编号接着现有最大值）再写回；删 `state/full-cursor.json`；写回退标记（§6.1）；改 `retired-members.json` 中本队 id；工作区 `git restore` + 删除新增文件 + 还原 mtime。
 4. 删除这些会话在 `storages/session_projcache` 的记录。
 5. 校验：会话文件 sha256、tar 内文件、工作区与影子提交一致；全部通过后删 `pending-restore.json`，释放锁。
 6. 每步写进度到 `pending-restore.json`；中断后再次运行从断点续做（步骤幂等）。
@@ -158,8 +177,11 @@ DeepSeek 官方《Context Caching》（api-docs.deepseek.com/guides/kv_cache，2
 ## 6. 适配
 
 ### 6.1 dsh-token-budget（独立有益：普通重启也受益；0.5.0 范围已定为 E1/E3/E4，这项需你决定放 0.5.0 还是之后）
-- `SwitchStates`、E1 `hideDecisions`、`FrozenText`（常驻说明）、压缩 `attempted` 落盘到 `.context/state/sessions/<sessionId>.json`（符合 0.4.0 §2.3「会话级 `sessions/<sessionId>`」），启动时懒加载。这样快照收 `.context/` 就自然带上。
-- 不需要知道 newsnap 存在。
+- 内存状态落盘：`SwitchStates`、E1 `hideDecisions`、`sections` 冻结值、压缩 `attempted` 写到 `.context/state/sessions/<sessionId>.json`（0.4.0 §2.3 会话级），启动时懒加载。不需要知道 newsnap 存在，普通重启也受益。
+- **回退后的全文/清单去重**（§1c(2)，必须做，否则回退后的合并静默缺失）。两种做法，待定：
+  - A. 去重键带 `attemptId`：`attemptId` 非空时用 `<teamId>@<代>:<taskId>:<attempt>:<attemptId 前 8 位>`，为空（取消、改派后被清空）时退回现键。改动小，也不需要知道 newsnap；但 0.4.0 当初正因 attemptId 会被清空才选了整数。
+  - B. 共享协议区加「时间线」：newsnap 恢复时在 `shared/timeline/nanmi/<teamId>@<代>.json` 写分支号（从 0 递增），dsh-token-budget 把它并进键（`…:<attempt>~b<分支>`），并给全文追加一条「回退标记」条目，使旧时间线条目的坐标可辨。键稳定、可解释，但多一份跨插件协议。
+  - 我倾向 B。
 
 ### 6.2 agent-teams（上游 issue，用户自己发）
 - 建议把 `parkedAttempts` 落盘（如 team.json 的 member 上记 `parkedAttemptId`），这样「重启 / 回退到有停靠 attempt 的时刻」不会被误判丢失。没有这项，newsnap 继续用 §3 的前置条件绕开。
@@ -218,3 +240,5 @@ DeepSeek 官方《Context Caching》（api-docs.deepseek.com/guides/kv_cache，2
 2. 有进行中任务时：本稿选「直接拒绝拍照」，而不是自动等待。
 3. 0.1 版用命令行 `newsnap apply` 停机恢复，能否接受？
 4. newsnap 仓库目前无 push 权限，是否给当前账号加权限，之后把本稿移过去？
+5. 回退后全文去重（§6.1）：A（键带 attemptId）还是 B（时间线分支号 + 回退标记）？
+6. 工作区级的全文、workspace 快照不回退，`workspace.md` 内容回退但先拍一份快照（§1c 表），是否同意？
