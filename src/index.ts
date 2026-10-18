@@ -16,13 +16,13 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { CompactionEngine } from '@deepseek-ai/dsh-compaction'
-import type { GenerateOptions } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, type GenerateOptions } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import { Config, refreshSettings, toSettings, validateConfig, type Settings } from './config.ts'
 import { TeamDirectory, isTeamEvent } from './team/directory.ts'
-import { registerWindowCounter, windowOf, type WindowInfo } from './window/counter.ts'
+import { HANDOFF_SOURCE_KIND, handoffSentOf, needsInitialHandoff, registerWindowCounter, windowOf, type WindowInfo } from './window/counter.ts'
 import { SwitchStates, decide, freshnessOf, newWindowVerdict, ownNoteStateOf, type Freshness, type SwitchReason } from './window/state.ts'
 import { registerNewWindowTool } from './window/new-window-tool.ts'
 import { captainLevels, levelOf, memberLevels, usageOf } from './budget/usage.ts'
@@ -65,9 +65,12 @@ export const inject = ['systemPrompt', 'tools', 'tokenMeter', 'sessionProjection
 /** 预算提示 context 的顺序：排在 SUBAGENT_DELEGATION(120) 之后。 */
 const BUDGET_CONTEXT_ORDER = 130
 const BUDGET_CONTEXT_NAME = 'dsh-token-budget:budget'
-/** w1 精简交接 context 的顺序。 */
-const HANDOFF_CONTEXT_ORDER = 140
-const HANDOFF_CONTEXT_NAME = 'dsh-token-budget:handoff'
+
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    'dsh-token-budget/handoff': { kind: typeof HANDOFF_SOURCE_KIND; form: 'instructions' }
+  }
+}
 
 export function apply(ctx: Context, raw: Config): void {
   const config = toSettings(raw)
@@ -251,12 +254,12 @@ export function apply(ctx: Context, raw: Config): void {
     text: budgetText,
   }), 'dsh-token-budget: budget context')
 
-  // ── w1 精简交接：每会话只算一次，换窗后由摘要位置的完整交接取代 ──
-  const initialHandoff = (assembly: { agent?: Agent }): string => {
-    const agent = assembly.agent
-    if (agent === undefined) return ''
+  // ── w1 精简交接（0.5.0 E4）：w1 第一步在尾部追加一条 user 消息，只发一次 ──
+  // 不放 runtime context：宿主把所有 context 拼成一段，任何一项变化都整段重发。
+  // 发过与否记在窗口投影里（随日志重放）；发出后不再改写，换窗后由摘要位置的完整交接接替。
+  const initialHandoff = (agent: Agent): string => {
     try {
-      if (windowFor(agent).index !== 1) return ''
+      if (!needsInitialHandoff(windowFor(agent).index, handoffSentOf(ctx, agent.session) ?? true)) return ''
       const identity = teams.identityOf(agent)
       if (identity === undefined) return ''
       const key = `${agent.id}:${config.notes}:${config.teamHistory}`
@@ -268,11 +271,17 @@ export function apply(ctx: Context, raw: Config): void {
       return ''
     }
   }
-  ctx.effect(() => ctx.systemPrompt.context({
-    name: HANDOFF_CONTEXT_NAME,
-    order: HANDOFF_CONTEXT_ORDER,
-    text: initialHandoff,
-  }), 'dsh-token-budget: initial handoff')
+  ctx.on('agent/pre-step', async ({ agent }, next) => {
+    const decision = await next()
+    if (decision.kind === 'reject') return decision
+    const text = initialHandoff(agent)
+    if (text === '') return decision
+    const message = createUserMessage({
+      content: [{ type: 'text', text: `<system-reminder>\n${text}\n</system-reminder>` }],
+      source: { kind: HANDOFF_SOURCE_KIND, form: 'instructions' },
+    })
+    return { ...decision, messages: [...decision.messages, message] }
+  })
 
   // ── 常驻说明：只放规则，每会话冻结一次 ──
   ctx.effect(() => ctx.systemPrompt.section({
@@ -440,9 +449,7 @@ export function apply(ctx: Context, raw: Config): void {
       ...assembly,
       contexts: assembly.contexts.map(entry => entry.name === BUDGET_CONTEXT_NAME
         ? { ...entry, text: budgetText(context) }
-        : entry.name === HANDOFF_CONTEXT_NAME
-          ? { ...entry, text: initialHandoff(context) }
-          : entry),
+        : entry),
     }
   })
 }
