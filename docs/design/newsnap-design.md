@@ -161,7 +161,7 @@ DeepSeek 官方《Context Caching》（api-docs.deepseek.com/guides/kv_cache，2
 
 1. 对每个涉及会话 `flock session.lock`；任一拿不到 = DSH 仍在运行，退出并报错，不做任何修改。
 2. 建救援点：当前的会话目录、`.agent-teams` 相关部分、影子提交（当前工作区）——即「恢复前一刻」也是一份可恢复的快照。
-3. 替换：会话目录内换成快照的代文件（删除更高编号的代）；快照后新增的本队会话整目录移入救援点；解 tar 覆盖 `.agent-teams/<teamId>`、`archive/<teamId>` 与 `.context/` 中本团队代的部分；`workspace.md` 先拍修改前快照（编号接着现有最大值）再写回；删 `state/full-cursor.json`；写回退标记（§6.1）；改 `retired-members.json` 中本队 id；工作区 `git restore` + 删除新增文件 + 还原 mtime。
+3. 替换：会话目录内换成快照的代文件（删除更高编号的代）；快照后新增的本队会话整目录移入救援点；解 tar 覆盖 `.agent-teams/<teamId>`、`archive/<teamId>` 与 `.context/` 中本团队代的部分；`workspace.md` 先拍修改前快照（编号接着现有最大值）再写回；删 `state/full-cursor.json`；改 `retired-members.json` 中本队 id；工作区 `git restore` + 删除新增文件 + 还原 mtime。
 4. 删除这些会话在 `storages/session_projcache` 的记录。
 5. 校验：会话文件 sha256、tar 内文件、工作区与影子提交一致；全部通过后删 `pending-restore.json`，释放锁。
 6. 每步写进度到 `pending-restore.json`；中断后再次运行从断点续做（步骤幂等）。
@@ -247,4 +247,5 @@ DeepSeek 官方《Context Caching》（api-docs.deepseek.com/guides/kv_cache，2
 4. newsnap 仓库目前无 push 权限，是否给当前账号加权限，之后把本稿移过去？
 5. 回退后全文去重（§6.1）：现倾向 A（键带 attemptId），同意吗？
 6. 工作区级的全文、workspace 快照不回退，`workspace.md` 内容回退但先拍一份快照（§1c 表），是否同意？
-7. ~~fork 怎么算~~ 已定（10-18）：newsnap 替代 fork，开着它时不用 fork；不做 fork 适配，只列为局限。
+7. §6.1 的 dsh-token-budget 适配（内存状态落盘 + 去重键）放进 0.5.0，还是 0.5.0 之后单独一版？
+8. ~~fork 怎么算~~ 已定（10-18）：newsnap 替代 fork，开着它时不用 fork；不做 fork 适配，只列为局限。
