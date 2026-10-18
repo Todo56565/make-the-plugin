@@ -2,7 +2,7 @@
 
 > 状态：**草稿，待用户审**（2026-10-18）。未写实现代码、未做 PoC。
 > 定位：单独插件 newsnap（仓库 `Todo56565/newsnap`，目前为空；当前 GitHub 授权对它**只读、无 push 权限**，故草稿暂放本仓库），另对 dsh-token-budget 与 agent-teams 做少量适配。
-> 源码基线：deepseek-harness `dsh-v0.2.1-rc.2`（`687f282e`）、dsh-agent-teams `v0.1.25`（`cf11157`）、dsh-token-budget `f8240c2`。下文 `包/文件:行` 均指这些版本。
+> 源码基线：deepseek-harness `dsh-v0.2.1-rc.2`（`687f282e`）、dsh-agent-teams `v0.1.25`（`cf11157`）、dsh-token-budget `40c3054`（含 0.5.0 E1/E4）。下文 `包/文件:行` 均指这些版本。
 > 构想与初步可行性见 [`future-council.md`](future-council.md)。
 
 ## 0. 结论先行
@@ -10,7 +10,7 @@
 1. **宿主不能在运行中卸载普通会话**：会话控制器 resume 后丢弃了 `AgentHandle`，没有释放入口 → 0.1 版只做「**停机恢复**」：界面登记恢复，用户退出 DSH 后由 newsnap 命令行在离线状态下替换文件，再启动。
 2. **不用宿主 fork**：fork 生成新会话，继承前缀里的摘要不计窗口，w 会回到 1；要求「w/e 完全一致」只能**原地替换会话日志**。
 3. **agent-teams 从磁盘重建基本完整**，唯一例外是「已停靠的进行中 attempt」（只在内存）——重启后会被当作丢失而自动重派新 attempt。所以**拍照条件 = 全队空闲且没有 claimed/in_progress 任务**；不用 halt（halt 会把未完成任务全部改成 cancelled）。
-4. **dsh-token-budget 有几项只在内存、会改变下一次请求文本**（回退兜底提示、待换窗请求、冻结文本），需要适配：落盘到 `.context/state/sessions/<id>.json`。另外笔记的新鲜度看文件 mtime，**恢复必须连 mtime 一起还原**；agent-teams 质量闸门也看产物 mtime，同理。
+4. **dsh-token-budget 有几项只在内存、会改变下一次请求文本**（回退兜底提示、待换窗请求、E1 子会话工具隐藏决定、常驻说明冻结值），需要适配：落盘到 `.context/state/sessions/<id>.json`。另外笔记的新鲜度看文件 mtime，**恢复必须连 mtime 一起还原**；agent-teams 质量闸门也看产物 mtime，同理。
 5. **界面按钮可行**：照 agent-teams 的做法，用客户端插槽 `conversation.session.header.actions` 放按钮，服务端用 `webServer.register` 挂 HTTP 路由。宿主的 Typert remote 列表是固定装配，插件加不进去。
 6. **缓存**：DeepSeek 官方只说「不再使用后通常几小时到几天清除」，尽力而为。恢复后前缀逐字相同即可命中；插件文本重建一致是前提。
 7. **社区没有团队级回溯**：现有 DSH rewind 插件都只管单会话、不管子代理（详见 §11）。可借鉴 PerryLink/dsh-checkpoint-rewind 的工作区快照、Anionex/dsh-turn-rewind 的「还原前救援点 + 校验 + 中断续做」。
@@ -46,13 +46,15 @@
 | `SwitchStates.fallback` | `src/window/state.ts:41-70`，用于 `index.ts:240-241` | 兜底期间预算提示是 `FALLBACK_PROMPT`，重启后变回普通提示 | 落盘 |
 | `SwitchStates.newWindow / refused` | 同上 | 成员已请求换窗、尚未执行 | 落盘 |
 | `SwitchStates.lastWrite` | 同上，`index.ts:145-150` | 交接里「笔记是否最新」 | 落盘 |
-| `FrozenText`（常驻说明、w1 交接） | `index.ts:105-106,262-292` | 进程内首次算出即冻结；重启后按当前 team.json 重算，可能不同 | 落盘冻结值 |
+| `FrozenText`（常驻说明） | `index.ts` `sections` | 进程内首次算出即冻结；文本只取决于角色与开关，重启后通常相同 | 落盘冻结值（保险） |
+| E1 `hideDecisions` | `index.ts` `agent/created` 监听（40c3054） | 普通子会话是否隐藏本插件工具，按会话 id 记第一次的决定，**只在进程内**；重启后按当时的 team.json 与祖先链重算，可能与第一次不同 → **工具列表变化，整段前缀缓存失效** | 落盘 |
+| w1 交接（0.5.0 E4 后） | `agent/pre-step` 尾部消息 + 投影 `handoffSent`（eec7a8d） | 已写进日志、随重放恢复 | **无需处理** |
 | `CompactionGate` / `compact.ts` 的 `attempted` | `src/budget/compact.ts:19-20` | 本窗口是否已尝试过压缩，重启后可能再试一次 | 落盘 |
 | 合并失败计数 `failures` | `index.ts:532` | 只影响外接合并模型，不影响成员请求 | 不管 |
 | `switching`、`TeamDirectory` 缓存 | `index.ts:104,99` | 瞬时 | 不管 |
 | 笔记 mtime | `src/prompt/handoff.ts:46-49`、`notes/store.ts:98` | 新鲜度、「最近改动的笔记」排序 | 恢复时还原 mtime |
 
-宿主侧机制（说明为什么落盘就够）：系统提示与运行时上下文都写进日志，重放后与新渲染比较，相同不产生事件（`core/agent-loop/src/runtime-context.ts:65-103`、`:113-155`）。所以只要插件重渲染的文本与当时一致，恢复后第一次请求与原时间线逐字相同；不一致时 system 文本在支持的路由上**追加到尾部**（不破坏前缀缓存，但 e 会多一号），否则替换首条（整段缓存失效）。
+宿主侧机制（说明为什么落盘就够）：系统提示与运行时上下文都写进日志，重放后与新渲染比较，相同不产生事件（`core/agent-loop/src/runtime-context.ts:65-103`、`:113-155`）。所以只要插件重渲染的文本与当时一致，恢复后第一次请求与原时间线逐字相同；不一致时：system 文本在支持的路由上**追加到尾部**（不破坏前缀缓存，但 e 会多一号），否则替换首条（整段缓存失效）；runtime context 是所有 context 拼成的一段快照，任一项变化整段在尾部重发（见 0.5.0 E4 的分析）；**工具列表**变化则整段前缀失效，最严重。
 
 ### 1d. 插件能否给客户端挂接口
 
@@ -155,8 +157,8 @@ DeepSeek 官方《Context Caching》（api-docs.deepseek.com/guides/kv_cache，2
 
 ## 6. 适配
 
-### 6.1 dsh-token-budget（0.5.0 小改，独立有益：普通重启也受益）
-- `SwitchStates`、`FrozenText`（常驻说明、w1 交接）、压缩 `attempted` 落盘到 `.context/state/sessions/<sessionId>.json`（符合 0.4.0 §2.3「会话级 `sessions/<sessionId>`」），启动时懒加载。这样快照收 `.context/` 就自然带上。
+### 6.1 dsh-token-budget（独立有益：普通重启也受益；0.5.0 范围已定为 E1/E3/E4，这项需你决定放 0.5.0 还是之后）
+- `SwitchStates`、E1 `hideDecisions`、`FrozenText`（常驻说明）、压缩 `attempted` 落盘到 `.context/state/sessions/<sessionId>.json`（符合 0.4.0 §2.3「会话级 `sessions/<sessionId>`」），启动时懒加载。这样快照收 `.context/` 就自然带上。
 - 不需要知道 newsnap 存在。
 
 ### 6.2 agent-teams（上游 issue，用户自己发）
