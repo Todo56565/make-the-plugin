@@ -55,13 +55,15 @@ export { Config }
 export const name = 'dsh-token-budget'
 /**
  * 依赖（设计 §2.2）：
- * - `agentPresets`：经 `serviceFor(agent, 'compaction')` 取 preset 内的压缩引擎（§2.4）
+ * - `agentPresets`：经 `serviceFor(agent, 'compaction')` 取 preset 内的压缩引擎（§2.4）；
+ *   不列入 inject，调用时 `ctx.get('agentPresets')` 读取：headless profile 没有该服务，列进去整插件会 pending；
+ *   没有时退回 `agent.ctx.get('compaction')`
  * - `sessions` / `sessionPersistence`：history 读取前先 `sessions.flush(session)`，再只读打开日志（§4.4）
  * - `llm` 只供可选的 notesMerge 使用，在调用时用 `ctx.get('llm')` 读取，不列入 inject：
  *   cordis 4 的 inject 没有 optional 写法，列进去 llm 就会成为整插件的启动前提
  * 绝不能出现 'compaction'：宿主层没有该服务（§3.2）
  */
-export const inject = ['systemPrompt', 'tools', 'tokenMeter', 'sessionProjections', 'agents', 'agentPresets', 'sessions', 'sessionPersistence']
+export const inject = ['systemPrompt', 'tools', 'tokenMeter', 'sessionProjections', 'agents', 'sessions', 'sessionPersistence']
 
 /** 预算提示 context 的顺序：排在 SUBAGENT_DELEGATION(120) 之后。 */
 const BUDGET_CONTEXT_ORDER = 130

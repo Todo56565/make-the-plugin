@@ -1,7 +1,7 @@
 /**
  * 换窗压缩（设计 §2.4 方案 D1；0.3.0 §1-1、§9a-8）。
  *
- * - 经 `ctx.agentPresets.serviceFor(agent, 'compaction')` 取该 agent 所在 preset 的压缩引擎，
+ * - 经 `ctx.get('agentPresets')?.serviceFor(agent, 'compaction')` 取该 agent 所在 preset 的压缩引擎（无 agentPresets 时退回 `agent.ctx.get('compaction')`），
  *   调用 `compactIfNeeded(agent, 'context-overflow', signal)`：不保留最近原文
  * - 接管引擎的 `summarize()`：团队会话直接返回【交接】文本，不发任何摘要请求；
  *   compaction-basic 每次经 `regionDependencies()` 动态取 `this.summarize`，
@@ -37,10 +37,16 @@ export class CompactionGate {
   }
 }
 
-/** 取 agent 所在 preset 的压缩引擎；无 preset 或未装压缩时返回 undefined。 */
+/**
+ * 取 agent 所在 preset 的压缩引擎；取不到时返回 undefined。
+ * agentPresets 不列入 inject（headless profile 没有该服务，列进去整插件会 pending），
+ * 有则经 serviceFor 取；没有则退回 agent 自己 ctx 上的 compaction 服务。
+ */
 export function compactionEngineOf(ctx: Context, agent: { ctx: Context }): CompactionEngine | undefined {
   try {
-    return ctx.agentPresets.serviceFor(agent, 'compaction')
+    const presets = ctx.get('agentPresets')
+    if (presets) return presets.serviceFor(agent, 'compaction')
+    return agent.ctx.get('compaction') as CompactionEngine | undefined
   } catch {
     return undefined
   }

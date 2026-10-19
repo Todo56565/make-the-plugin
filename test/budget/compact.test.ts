@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { releaseSummarize, takeOverSummarize } from '../../src/budget/compact.ts'
+import { compactionEngineOf, releaseSummarize, takeOverSummarize } from '../../src/budget/compact.ts'
 
 class FakeEngine {
   calls = 0
@@ -37,4 +37,16 @@ test('处理器随插件实例更新；卸载后一律走原方法', async () =>
   assert.equal(((await target.run(owner(true))) as { summary: Array<{ text: string }> }).summary[0]!.text, 'v2')
   releaseSummarize(target as never)
   assert.equal(((await target.run(owner(true))) as { summary: Array<{ text: string }> }).summary[0]!.text, 'LLM 摘要')
+})
+
+test('compactionEngineOf：有 agentPresets 经 serviceFor 取；无（headless）退回 agent.ctx 的 compaction', () => {
+  const engine = { tag: 'preset' }
+  const local = { tag: 'agent' }
+  const agent = { ctx: { get: (n: string) => (n === 'compaction' ? local : undefined) } }
+  const withPresets = { get: (n: string) => (n === 'agentPresets' ? { serviceFor: (_a: unknown, s: string) => (s === 'compaction' ? engine : undefined) } : undefined) }
+  const headless = { get: (_n: string) => undefined }
+  const broken = { get: (_n: string) => { throw new Error('boom') } }
+  assert.equal(compactionEngineOf(withPresets as never, agent as never), engine)
+  assert.equal(compactionEngineOf(headless as never, agent as never), local)
+  assert.equal(compactionEngineOf(broken as never, agent as never), undefined)
 })
