@@ -2,14 +2,15 @@
  * 跨进程、跨插件的文件锁（设计 0.4.0 §2.4）。
  *
  * - 锁文件用 `open(..., 'wx')` 独占创建，内容为 `{ pid, time, token }`
- * - 锁存在时间超过 staleMs 视为持有者已崩溃，可接管（删除后重抢）
+ * - 锁存在时间超过 staleMs 视为持有者已崩溃，可接管（删除后重抢）；
+ *   内容读不出（持有者在创建后、写完前崩溃）时按文件 mtime 判断
  * - 释放时只删除自己持有的锁（比对 token），避免误删接管者的锁
  * - 等待超过 timeoutMs 抛 LockTimeoutError
  *
  * 其他插件（如未来的常驻合并助手）写 `workspace.md` 必须使用同一锁文件与同一格式。
  */
 
-import { mkdir, open, readFile, rm } from 'node:fs/promises'
+import { mkdir, open, readFile, rm, stat } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { randomUUID } from 'node:crypto'
 
@@ -45,6 +46,15 @@ async function readLock(path: string): Promise<LockRecord | undefined> {
 }
 
 /** 尝试获取一次；成功返回 token。 */
+/** 锁文件的修改时间；不存在返回 undefined。 */
+async function lockMtime(path: string): Promise<number | undefined> {
+  try {
+    return (await stat(path)).mtimeMs
+  } catch {
+    return undefined
+  }
+}
+
 async function tryAcquire(path: string, now: number): Promise<string | undefined> {
   const token = randomUUID()
   let handle
@@ -75,8 +85,9 @@ export async function withFileLock<T>(path: string, fn: () => Promise<T>, option
     token = await tryAcquire(path, now())
     if (token !== undefined) break
     const held = await readLock(path)
-    // 内容不完整（持有者刚创建、尚未写完）时不接管，等下一轮。
-    if (held !== undefined && now() - held.time > staleMs) {
+    // 内容读不出：可能持有者刚创建、尚未写完（等下一轮），也可能写完前崩溃了；按 mtime 判过期。
+    const since = held?.time ?? await lockMtime(path)
+    if (since !== undefined && now() - since > staleMs) {
       await rm(path, { force: true })
       continue
     }

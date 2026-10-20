@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, utimesSync, writeFileSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { LockTimeoutError, withFileLock } from '../../src/context/lock.ts'
@@ -30,6 +30,21 @@ test('锁：过期锁可接管；未过期则超时', async () => {
   writeFileSync(lock, JSON.stringify({ pid: 1, time: Date.now(), token: 'live' }))
   await assert.rejects(withFileLock(lock, async () => undefined, { timeoutMs: 30, retryMs: 5 }), LockTimeoutError)
   assert.equal(JSON.parse(readFileSync(lock, 'utf8')).token, 'live')
+})
+
+test('锁：内容读不出（创建后写完前崩溃）按 mtime 判过期；新建的不接管', async () => {
+  const d = dir()
+  const lock = join(d, 'w.lock')
+  writeFileSync(lock, '')
+  const old = (Date.now() - 60_000) / 1000
+  utimesSync(lock, old, old)
+  let ran = false
+  await withFileLock(lock, async () => { ran = true })
+  assert.equal(ran, true)
+  assert.equal(existsSync(lock), false)
+  writeFileSync(lock, '{"pid":')
+  await assert.rejects(withFileLock(lock, async () => undefined, { timeoutMs: 30, retryMs: 5 }), LockTimeoutError)
+  assert.equal(readFileSync(lock, 'utf8'), '{"pid":')
 })
 
 test('锁：fn 抛错也释放', async () => {
