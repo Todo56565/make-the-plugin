@@ -111,8 +111,8 @@ Loader 语义（`packages/preset/agent-preset/skills/cordis-composition-referenc
 
 ```ts
 export const name = 'dsh-token-budget'
-export const inject = ['systemPrompt', 'tools', 'tokenMeter', 'sessionProjections', 'agents', 'agentPresets', 'sessions', 'sessionPersistence']
-// agentPresets：方案 D1 经 serviceFor(agent,'compaction') 取压缩引擎（§2.4）；sessions / sessionPersistence：只读 history（§4.4）
+export const inject = ['systemPrompt', 'tools', 'tokenMeter', 'sessionProjections', 'agents', 'sessions', 'sessionPersistence']
+// agentPresets（0.5.1 F1 起不列入 inject，调用时 ctx.get 读取；headless 没有该服务时退回 agent.ctx 的 compaction）：方案 D1 经 serviceFor(agent,'compaction') 取压缩引擎（§2.4）；sessions / sessionPersistence：只读 history（§4.4）
 // llm 不列入：只供可选的 notesMerge（§7-3），调用时 ctx.get('llm') 读取；cordis 4 的 inject 没有 optional 写法，列入即成为整插件的启动前提（2026-10-15，实现 3392547）
 // 绝不能出现 'compaction'：宿主层没有该服务，见 §3.2
 
