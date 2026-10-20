@@ -74,6 +74,17 @@ export function canSee(identity: Pick<TeamIdentity, 'role' | 'agentKey'>, messag
   return message.to === identity.agentKey || message.from === identity.agentKey
 }
 
+/**
+ * 调用者能看到的最早时间：本代团队创建之后；成员还要在自己加入之后。
+ * agent-teams 移除成员、同 id 换代都不清信箱，同名新成员或新一代不应读到旧信。
+ */
+export function visibleSince(identity: Pick<TeamIdentity, 'role' | 'agentKey' | 'team'>): number {
+  const joined = identity.role === 'member'
+    ? identity.team.members.find(m => m.name === identity.agentKey)?.joinedAt
+    : undefined
+  return Math.max(identity.team.createdAt, joined ?? 0)
+}
+
 /** 读取团队全部信箱，按可见性过滤。 */
 export async function readMailView(identity: TeamIdentity): Promise<MailView> {
   const dir = join(identity.stateRoot, identity.team.id, 'inbox')
@@ -83,6 +94,7 @@ export async function readMailView(identity: TeamIdentity): Promise<MailView> {
   } catch {
     return { messages: [], malformed: 0 }
   }
+  const since = visibleSince(identity)
   const messages: MailMessage[] = []
   let malformed = 0
   for (const name of names) {
@@ -90,7 +102,7 @@ export async function readMailView(identity: TeamIdentity): Promise<MailView> {
     try { text = await readFile(join(dir, name), 'utf8') } catch { continue }
     const parsed = parseMailbox(text)
     malformed += parsed.malformed
-    for (const message of parsed.messages) if (canSee(identity, message)) messages.push(message)
+    for (const message of parsed.messages) if (message.ts >= since && canSee(identity, message)) messages.push(message)
   }
   messages.sort((a, b) => a.ts - b.ts || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
   return { messages, malformed }

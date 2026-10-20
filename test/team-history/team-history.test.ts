@@ -49,6 +49,16 @@ test('可见性：队长看全部；成员看收到的和自己发出的', async
   assert.equal(canSee({ role: 'member', agentKey: 'bob' }, { id: 'x', from: 'alice', to: 'captain', content: '', ts: 0 }), false)
 })
 
+test('可见性：只看本代创建之后；成员只看自己加入之后（同名新成员读不到旧信）', async () => {
+  const root = fixture()
+  const base = identity(root, 'captain', 'captain')
+  const team = { ...base.team, createdAt: 1500, members: [{ id: 's-alice2', name: 'alice', joinedAt: 2500 }] }
+  const captain = await readMailView({ ...base, team })
+  assert.deepEqual(captain.messages.map(m => m.id), ['m5', 'm2', 'm3', 'm4'])
+  const alice = await readMailView({ ...identity(root, 'member', 'alice'), team })
+  assert.deepEqual(alice.messages.map(m => m.id), ['m3'])
+})
+
 test('list：按发信人→收信人汇总，默认不含作废', async () => {
   const text = await runTeamHistory({ action: 'list' }, identity(fixture(), 'captain', 'captain'), limits)
   assert.match(text, /共 4 封信/)

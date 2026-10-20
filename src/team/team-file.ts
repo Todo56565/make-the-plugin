@@ -15,6 +15,8 @@ export interface TeamMemberInfo {
   id: string
   /** 团队内唯一的成员名。 */
   name: string
+  /** 加入时间（毫秒）；team.json 没有时缺省。 */
+  joinedAt?: number
 }
 
 /** 本插件用到的任务字段（用于换窗交接）。 */
@@ -83,7 +85,9 @@ export function coerceTeam(value: unknown, dirId: string): TeamInfo | undefined 
   const members: TeamMemberInfo[] = []
   for (const raw of value.members) {
     if (!isRecord(raw) || typeof raw.name !== 'string') continue
-    members.push({ id: typeof raw.id === 'string' ? raw.id : '', name: raw.name })
+    const member: TeamMemberInfo = { id: typeof raw.id === 'string' ? raw.id : '', name: raw.name }
+    if (typeof raw.joinedAt === 'number' && Number.isFinite(raw.joinedAt)) member.joinedAt = raw.joinedAt
+    members.push(member)
   }
   const tasks: TeamTaskInfo[] = []
   for (const raw of Array.isArray(value.tasks) ? value.tasks : []) {
