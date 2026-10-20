@@ -8,8 +8,9 @@
  * - 给出 stateRoot 时，workspace.md 的写入持跨进程锁 `shared/locks/workspace.md.lock`，并在改动前拍快照（设计 0.4.0 决定 9）
  */
 
-import { mkdir, readdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { readdir, readFile, stat } from 'node:fs/promises'
+import { join } from 'node:path'
+import { atomicWrite } from '../context/atomic.ts'
 import { WORKSPACE_NOTE, physicalNotePath, type NoteTeam } from './paths.ts'
 import { lockPath } from '../context/layout.ts'
 import { withFileLock } from '../context/lock.ts'
@@ -170,10 +171,7 @@ export class NotesStore {
     if (path === WORKSPACE_NOTE && stateRoot !== undefined) {
       await snapshotWorkspaceBefore(stateRoot, await this.read(path), content, this.options.workspaceSnapshots?.() ?? { keep: 0 })
     }
-    await mkdir(dirname(abs), { recursive: true })
-    const tmp = `${abs}.${process.pid}.${Date.now()}.tmp`
-    await writeFile(tmp, content, 'utf8')
-    await rename(tmp, abs)
+    await atomicWrite(abs, content)
     const info = await stat(abs)
     return { path, lines: countLines(content), bytes, mtimeMs: info.mtimeMs }
   }
