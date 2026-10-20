@@ -552,6 +552,7 @@ function registerNotesMerge(
         if (r.newlyEnded.length > 0 || r.movedNotes > 0 || r.removedAttempts > 0 || r.purged.length > 0) {
           logger.info(`结束代收尾（${stateRoot}）：新结束 ${r.newlyEnded.join(', ') || '无'}，搬入笔记 ${r.movedNotes} 份，删除无终态 attempt ${r.removedAttempts} 个，清理 ${r.purged.join(', ') || '无'}`)
         }
+        for (const f of r.failed) logger.warn(`结束代收尾失败（${f.key}，下次重试）：${f.error}`)
       }, (error: unknown) => {
         if (!lifetime.signal.aborted) logger.warn(`结束代收尾失败（${stateRoot}）：${String(error)}`)
       })

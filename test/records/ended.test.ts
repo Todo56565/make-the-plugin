@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { attemptSnapshotDir, fullVolumePath, notesTeamDir, pendingPath, recordsTeamDir } from '../../src/context/layout.ts'
@@ -74,4 +74,20 @@ test('cleanupDays：结束超过 N 天的代整体删除（含清单），默认
   assert.equal(existsSync(recordsTeamDir(root, 'old', 1000)), false)
   assert.equal(existsSync(pendingPath(root, 'old', 1000)), false)
   assert.ok(existsSync(attemptSnapshotDir(root, 'live', 1000, 't9', 1)))
+})
+
+test('一个代收尾出错不影响其他代，修好后下次照常收尾', async () => {
+  const root = setup()
+  // gone@5 的目标 notes 位置被同名文件占住 ⇒ 搬笔记失败
+  const blocker = join(recordsTeamDir(root, 'gone', 5), 'notes')
+  put(blocker, 'x')
+  const r = await sweepEndedGenerations(root, { now: 10 * DAY })
+  assert.deepEqual(r.failed.map(f => f.key), ['gone@5'])
+  assert.deepEqual(r.newlyEnded, ['old@rs'])
+  assert.equal(readFileSync(join(recordsTeamDir(root, 'old', 1000), 'notes', 'alice.md'), 'utf8'), 'old 笔记\n')
+  rmSync(blocker)
+  const again = await sweepEndedGenerations(root, { now: 11 * DAY })
+  assert.deepEqual(again.failed, [])
+  assert.deepEqual(again.newlyEnded, ['gone@5'])
+  assert.equal(readFileSync(join(recordsTeamDir(root, 'gone', 5), 'notes', 'alice.md'), 'utf8'), 'gone 笔记\n')
 })

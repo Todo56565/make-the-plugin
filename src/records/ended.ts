@@ -37,6 +37,8 @@ export interface SweepResult {
   removedAttempts: number
   /** 本次按 cleanupDays 整体删除的代。 */
   purged: string[]
+  /** 本次收尾出错的代与错误；不影响其他代，下次照常重试。 */
+  failed: Array<{ key: string; error: string }>
 }
 
 export interface SweepOptions {
@@ -147,32 +149,41 @@ async function dropEmptyPending(stateRoot: string, gen: EndedGeneration, purge: 
   })
 }
 
+/** 收尾一个已结束的代；出错时抛出，由调用方记下并继续下一代。 */
+async function sweepOne(stateRoot: string, gen: EndedGeneration, key: string, recorded: ReadonlySet<string>, now: number, days: number, result: SweepResult): Promise<void> {
+  const dir = recordsTeamDir(stateRoot, gen.teamId, gen.createdAt)
+  result.removedAttempts += await removeUnrecordedAttempts(dir, gen, recorded)
+  result.movedNotes += await moveNotes(stateRoot, gen)
+  let endedAt = await readEndedAt(dir)
+  if (endedAt === undefined) {
+    endedAt = now
+    await mkdir(dir, { recursive: true })
+    await atomicWrite(join(dir, ENDED_FILE), `${JSON.stringify({ schema: ENDED_SCHEMA, teamId: gen.teamId, createdAt: gen.createdAt, endedAt })}\n`)
+    result.newlyEnded.push(key)
+  }
+  const purge = days > 0 && now - endedAt > days * DAY_MS
+  await dropEmptyPending(stateRoot, gen, purge)
+  if (purge) {
+    await rm(dir, { recursive: true, force: true })
+    result.purged.push(key)
+  }
+}
+
 /** 扫描并收尾全部已结束的代。 */
 export async function sweepEndedGenerations(stateRoot: string, options: SweepOptions = {}): Promise<SweepResult> {
   const now = options.now ?? Date.now()
   const days = options.cleanupDays ?? 0
-  const result: SweepResult = { ended: [], newlyEnded: [], movedNotes: 0, removedAttempts: 0, purged: [] }
+  const result: SweepResult = { ended: [], newlyEnded: [], movedNotes: 0, removedAttempts: 0, purged: [], failed: [] }
   const ended = await findEndedGenerations(stateRoot)
   if (ended.length === 0) return result
   const recorded = await scanFullKeys(stateRoot)
   for (const gen of ended) {
     const key = teamGenKey(gen.teamId, gen.createdAt)
     result.ended.push(key)
-    const dir = recordsTeamDir(stateRoot, gen.teamId, gen.createdAt)
-    result.removedAttempts += await removeUnrecordedAttempts(dir, gen, recorded)
-    result.movedNotes += await moveNotes(stateRoot, gen)
-    let endedAt = await readEndedAt(dir)
-    if (endedAt === undefined) {
-      endedAt = now
-      await mkdir(dir, { recursive: true })
-      await atomicWrite(join(dir, ENDED_FILE), `${JSON.stringify({ schema: ENDED_SCHEMA, teamId: gen.teamId, createdAt: gen.createdAt, endedAt })}\n`)
-      result.newlyEnded.push(key)
-    }
-    const purge = days > 0 && now - endedAt > days * DAY_MS
-    await dropEmptyPending(stateRoot, gen, purge)
-    if (purge) {
-      await rm(dir, { recursive: true, force: true })
-      result.purged.push(key)
+    try {
+      await sweepOne(stateRoot, gen, key, recorded, now, days, result)
+    } catch (error) {
+      result.failed.push({ key, error: String(error) })
     }
   }
   return result
