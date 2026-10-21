@@ -173,10 +173,10 @@ export function TokenBudgetSettings(props: TokenBudgetSettingsProps) {
       {value('workspaceMaxBytes', 'workspaceMaxBytes')}
       {value('readMaxBytes', 'readMaxBytes')}
       {value('hintMaxBytes', 'hintMaxBytes', 'hintMaxBytesHint')}
-      {value('hintRecentNotes', 'hintRecentNotes')}
-      {value('historyMaxResults', 'historyMaxResults')}
-      {value('historyMaxReadChars', 'historyMaxReadChars')}
-      {value('historyMaxListItems', 'historyMaxListItems')}
+      {value('hintRecentNotes', 'hintRecentNotes', 'hintRecentNotesHint')}
+      {value('historyMaxResults', 'historyMaxResults', 'historyMaxResultsHint')}
+      {value('historyMaxReadChars', 'historyMaxReadChars', 'historyMaxReadCharsHint')}
+      {value('historyMaxListItems', 'historyMaxListItems', 'historyMaxListItemsHint')}
       {value('stateDir', 'stateDir', 'stateDirHint', false)}
     </div>
   </SettingsForm>
