@@ -59,3 +59,7 @@
 我们这边：0.4.0 全文记录已补上「完整 output 可回查」；1、3、4 属上游，可与 3.1 一并整理成 issue。
 
 - workspace 快照编号看板：设置页列出现存快照（编号、时间、大小）勾选，替代 `mergeSnapshotPicks` 文本框；同时显示 records 占用。需要插件向客户端暴露数据接口，0.4.0 不做（2026-10-18）。
+
+## 4. 多模式兼容的长期打算（用户原话，2026-10-21，尚未想清楚，未排期）
+
+> 其实我之后的打算是让token-budget兼容普通模式（不开agent-teams或官方teams），以及兼容官方teams；并且普通模式<->官方teams，普通模式<->agent-teams，都可以灵活对接。或者可以先fork一个分支做兼容官方teams的budget，然后分成两个队伍A：普通模式<->官方teams，B：普通模式<->agent-teams完成最终budget的制作。
