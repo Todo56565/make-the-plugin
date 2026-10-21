@@ -31,6 +31,12 @@
 - 协调者/合并助手读太多历史，自己的窗口先耗尽。
 - 依赖 client/UI 的方案可能随宿主升级失效。
 
+### 1.5 讨论结论（2026-10-21）
+
+- 先只做**共议会**；常驻合并助手以后单独讨论。
+- 共议会只做**点对点互发消息**，不做共享讨论区／黑板。
+- 形态向 Claude Code 的 cross-session messaging 看齐（`ListAgents` / `SendMessage`、接收方 accept / hold / refuse、来自其他会话的消息不算用户授权、防环限流、`notify_when_idle`）。社区四个插件只借设计，见 `docs/reference/dsh-plugin-survey-2026-10-14/03-peer-messaging.md` §3。
+
 ## 2. 其他待排期想法
 
 - **LLM 摘要作为可选项加回**：0.3.0 换窗默认不调用模型（对齐 Codex token-budget），以后作为可选项加回，届时再做模型选择。
