@@ -100,7 +100,8 @@ export function runSearch(model: HistoryModel, args: ListArgs & { query: string 
 }
 
 export interface HistoryToolDeps {
-  isTeamAgent: (agent: Agent) => boolean
+  /** 本插件对该会话生效：普通会话、队长、成员（子会话非成员不生效）。 */
+  isActive: (agent: Agent) => boolean
   load: (agent: Agent, signal: AbortSignal | undefined) => Promise<HistoryModel>
   limits: () => HistoryLimits
 }
@@ -124,7 +125,7 @@ const filterParams = {
 export function registerHistoryTools(ctx: Context, deps: HistoryToolDeps): () => void {
   async function modelFor(agent: Agent | undefined, signal: AbortSignal | undefined): Promise<HistoryModel> {
     if (agent === undefined) throw new Error('历史工具需要调用方 agent')
-    if (!deps.isTeamAgent(agent)) throw new Error('当前会话不属于任何 AgentTeams 团队，历史工具不可用')
+    if (!deps.isActive(agent)) throw new Error('子会话不能使用历史工具')
     return deps.load(agent, signal)
   }
 

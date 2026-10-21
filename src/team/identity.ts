@@ -6,12 +6,29 @@
  * - v1 不复刻 agent-teams 的 fork 祖先链（fork 后代按非团队处理）
  * - 命中多个团队视为无团队并告警
  * - 任何读/解析异常都当作非团队会话，只告警
+ *
+ * 0.6.0：顶层、非团队的会话是「普通会话」（{@link PlainIdentity}）；子会话非成员不解析身份。
  */
 
 import { join } from 'node:path'
 import { CAPTAIN_KEY, listTeams, sanitizeKey, type TeamInfo } from './team-file.ts'
 
 export type TeamRole = 'captain' | 'member'
+
+/** 会话角色：普通会话 / 队长 / 成员。 */
+export type SessionRole = 'plain' | TeamRole
+
+/** 普通会话：顶层（无父会话），且不是任何团队的队长或成员（0.6.0 §2.1）。 */
+export interface PlainIdentity {
+  role: 'plain'
+  /** 日志与提示里的身份名。 */
+  agentKey: 'plain'
+  sessionId: string
+  /** 状态根：与团队共用 `<cwd>/<stateDir>`。 */
+  stateRoot: string
+}
+
+export type SessionIdentity = PlainIdentity | TeamIdentity
 
 export interface TeamIdentity {
   role: TeamRole

@@ -92,3 +92,16 @@ test('coerceTeam 读出任务的 attempt_id（换窗交接要带）', () => {
   assert.equal(t.tasks[0]!.attemptId, 'a-1')
   assert.equal('attemptId' in t.tasks[1]!, false)
 })
+
+test('sessionOf（0.6.0）：团队身份优先；顶层非团队为普通会话；子会话非成员为 undefined', () => {
+  const root = mkdtempSync(join(tmpdir(), 'sess-'))
+  mkdirSync(join(root, '.agent-teams', 'a'), { recursive: true })
+  writeFileSync(join(root, '.agent-teams', 'a', 'team.json'), JSON.stringify(team('a', 'c1', [['m1', 'alice']])))
+  const dir = new TeamDirectory('.agent-teams', () => {})
+  const agent = (id: string, parentSession?: string) => ({ id, session: { header: { cwd: root, ...(parentSession === undefined ? {} : { parentSession }) } } })
+  assert.equal(dir.sessionOf(agent('c1'))?.role, 'captain')
+  assert.equal(dir.sessionOf(agent('m1', 'c1'))?.role, 'member')
+  assert.deepEqual(dir.sessionOf(agent('top')), { role: 'plain', agentKey: 'plain', sessionId: 'top', stateRoot: join(root, '.agent-teams') })
+  assert.equal(dir.sessionOf(agent('sub', 'top')), undefined)
+  assert.equal(dir.reloadSession(agent('top'))?.role, 'plain')
+})

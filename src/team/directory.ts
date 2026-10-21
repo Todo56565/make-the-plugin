@@ -7,12 +7,12 @@
  * - 「不是团队」的结果只缓存短时间（成员会话可能先于 team.json 写入而创建）。
  */
 
-import { resolveIdentity, type TeamIdentity } from './identity.ts'
+import { resolveIdentity, stateRootOf, type SessionIdentity, type TeamIdentity } from './identity.ts'
 
 /** 本插件需要的 agent 形状（与 dsh-agent 的 Agent 结构兼容）。 */
 export interface AgentLike {
   readonly id: string
-  readonly session: { readonly header: { readonly cwd?: string } }
+  readonly session: { readonly header: { readonly cwd?: string; readonly parentSession?: unknown } }
 }
 
 interface Entry {
@@ -54,6 +54,23 @@ export class TeamDirectory {
     })
     this.entries.set(agent.id, { identity, at: now })
     return identity
+  }
+
+  /**
+   * 会话身份（0.6.0）：团队身份优先；否则顶层会话为普通会话；子会话非成员返回 undefined。
+   */
+  sessionOf(agent: AgentLike, fresh = false): SessionIdentity | undefined {
+    return this.identityOf(agent, fresh) ?? this.plainOf(agent)
+  }
+
+  /** 同 {@link reload}，但含普通会话。 */
+  reloadSession(agent: AgentLike): SessionIdentity | undefined {
+    return this.reload(agent) ?? this.plainOf(agent)
+  }
+
+  private plainOf(agent: AgentLike): SessionIdentity | undefined {
+    if (agent.session.header.parentSession !== undefined) return undefined
+    return { role: 'plain', agentKey: 'plain', sessionId: agent.id, stateRoot: stateRootOf(agent.session.header.cwd, this.stateDir) }
   }
 
   /** 丢弃该会话的缓存后重新读盘（换窗交接要最新的任务状态）。 */

@@ -47,7 +47,8 @@ export function renderContextRemaining(value: ContextRemaining): string {
 }
 
 export interface ContextToolDeps {
-  isTeamAgent: (agent: Agent) => boolean
+  /** 本插件对该会话生效：普通会话、队长、成员（子会话非成员不生效）。 */
+  isActive: (agent: Agent) => boolean
   usage: (agent: Agent) => Usage | undefined
   compactAtRatio: () => number
 }
@@ -69,7 +70,7 @@ export function registerContextRemainingTool(ctx: Context, deps: ContextToolDeps
     async execute(_args, exec) {
       const agent = exec.agent
       if (agent === undefined) throw new Error('context_remaining 需要调用方 agent')
-      if (!deps.isTeamAgent(agent)) throw new Error('当前会话不属于任何 AgentTeams 团队，context_remaining 不可用')
+      if (!deps.isActive(agent)) throw new Error('子会话不能使用 context_remaining')
       return { text: renderContextRemaining(contextRemainingOf(deps.usage(agent), deps.compactAtRatio())) }
     },
   }))

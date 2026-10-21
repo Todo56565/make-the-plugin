@@ -5,7 +5,7 @@
  * 每个会话首次得到团队身份后冻结，之后不再变化，避免改写 system 前缀破坏缓存。
  */
 
-import type { TeamRole } from '../team/identity.ts'
+import type { SessionRole } from '../team/identity.ts'
 
 /** 紧随 TEAM_POLICY(600)。 */
 export const NOTES_SECTION_ORDER = 620
@@ -17,7 +17,8 @@ export interface SectionSwitches {
   merge?: boolean
 }
 
-export function notesSectionText(role: TeamRole, switches: SectionSwitches): string {
+export function notesSectionText(role: SessionRole, switches: SectionSwitches): string {
+  if (role === 'plain') return plainSectionText(switches)
   const lines = [
     switches.notes ? '## 团队笔记与换窗' : '## 换窗',
     '上下文接近预算时会换到新窗口，早先的原始消息不再在上下文中；新窗口开头的【交接】列出你的身份、任务、笔记位置和回看工具。',
@@ -39,6 +40,13 @@ export function notesSectionText(role: TeamRole, switches: SectionSwitches): str
   } else if (switches.history) {
     lines.push('换窗后缺的细节用 history_* 回看；历史是内部工作记录，不要在对外回复里提起。')
   }
+  return lines.join('\n')
+}
+
+/** 普通会话的常驻说明（笔记在 0.6.0 步骤 4 接入）。 */
+function plainSectionText(switches: SectionSwitches): string {
+  const lines = ['## 换窗', '上下文接近预算时会换到新窗口，早先的原始消息不再在上下文中；新窗口开头的【交接】列出上一窗口和回看工具。']
+  if (switches.history) lines.push('换窗后缺的细节用 history_* 回看；历史是内部工作记录，不要在对外回复里提起。')
   return lines.join('\n')
 }
 

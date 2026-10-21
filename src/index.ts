@@ -43,7 +43,7 @@ import { cosineSample } from './notes/snapshot-sampling.ts'
 import { listWorkspaceSnapshots } from './notes/workspace-snapshot.ts'
 import { tokensToBytes, type SnapshotMaterial } from './notes/merge-materials.ts'
 import { listTeams } from './team/team-file.ts'
-import { stateRootOf, type TeamIdentity } from './team/identity.ts'
+import { stateRootOf, type SessionIdentity } from './team/identity.ts'
 import { shouldHideTools } from './team/tool-visibility.ts'
 import { FrozenText, NOTES_SECTION_ORDER, notesSectionText } from './prompt/notes-section.ts'
 import { handoffText, initialHandoffText, listNoteMetasSync, ownNoteMtime, type OwnNoteState } from './prompt/handoff.ts'
@@ -156,10 +156,10 @@ export function apply(ctx: Context, raw: Config): void {
       return true
     }
   }
-  const freshness = (agent: Agent, identity: TeamIdentity, window: WindowInfo): Freshness => freshnessOf({
+  const freshness = (agent: Agent, identity: SessionIdentity, window: WindowInfo): Freshness => freshnessOf({
     window: window.index,
     windowStart: window.startTime,
-    mtimeMs: ownNoteMtime(identity),
+    mtimeMs: identity.role === 'plain' ? undefined : ownNoteMtime(identity),
     lastWrite: switchState(agent, window).lastWrite,
   })
 
@@ -170,9 +170,9 @@ export function apply(ctx: Context, raw: Config): void {
     patchedEngines.clear()
   }, 'dsh-token-budget: summarize takeover')
 
-  /** 生成换窗时的【交接】；不是团队会话返回 undefined（走原摘要）。 */
+  /** 生成换窗时的【交接】；子会话非成员返回 undefined（走原摘要）。 */
   const handoffFor = (owner: Agent): string | undefined => {
-    const identity = teams.reload(owner)
+    const identity = teams.reloadSession(owner)
     if (identity === undefined) return undefined
     const window = windowFor(owner)
     const reason = switching.get(owner.id)
@@ -183,21 +183,21 @@ export function apply(ctx: Context, raw: Config): void {
     } catch { /* 当作未更新 */ }
     let metas: ReturnType<typeof listNoteMetasSync> = []
     try {
-      if (config.notes) metas = listNoteMetasSync(identity)
+      if (config.notes && identity.role !== 'plain') metas = listNoteMetasSync(identity)
     } catch { /* 元数据缺失不影响交接 */ }
     const text = handoffText({
       identity,
       previousWindow: window.index,
       own,
       metas,
-      notes: config.notes,
+      notes: config.notes && identity.role !== 'plain',
       history: config.history,
       teamHistory: config.teamHistory,
       recentNotes: config.notesOptions.hintRecentNotes,
       maxBytes: config.notesOptions.hintMaxBytes,
     })
     logger.info(`会话 ${owner.id}（${identity.agentKey}）换窗：w${window.index} → w${window.index + 1}，原因 ${reason ?? 'host'}，笔记 ${own.kind}`)
-    if (config.notes) {
+    if (config.notes && identity.role !== 'plain') {
       try {
         const seq = Number(owner.session.seq) - 1
         for (const pending of snapshotOnWindowSwitch(identity, sessionRef(owner.session.id, window.index, seq))) {
@@ -216,11 +216,11 @@ export function apply(ctx: Context, raw: Config): void {
       // 交接生成失败也不退回 LLM 摘要：团队会话给最小交接
       logger.warn(`换窗交接生成失败：${String(error)}`)
       try {
-        if (teams.identityOf(owner, true) === undefined) return undefined
+        if (teams.sessionOf(owner, true) === undefined) return undefined
       } catch {
         return undefined
       }
-      return `【交接】\n上一窗口：w${windowFor(owner).index}，交接信息生成失败；进展先读自己的笔记，再用 history_* 回看。`
+      return `【交接】\n上一窗口：w${windowFor(owner).index}，交接信息生成失败；进展先读自己的笔记（如有），再用 history_* 回看。`
     }
   }
   const engineFor = (agent: Agent): CompactionEngine | undefined => {
@@ -236,7 +236,7 @@ export function apply(ctx: Context, raw: Config): void {
     const agent = assembly.agent
     if (agent === undefined) return ''
     try {
-      const identity = teams.identityOf(agent)
+      const identity = teams.sessionOf(agent)
       if (identity === undefined) return ''
       const usage = usageOf(ctx, agent.session)
       if (usage === undefined) return ''
@@ -249,7 +249,7 @@ export function apply(ctx: Context, raw: Config): void {
       const levels = memberLevels(remindAtRatio, compactAtRatio, bucketStep)
       const level = levelOf(usage.ratio, levels)
       if (level === undefined) return ''
-      return memberReminderText({ level, first: level === levels[0], compactAtRatio, notes: config.notes })
+      return memberReminderText({ level, first: level === levels[0], compactAtRatio, notes: config.notes && identity.role !== 'plain' })
     } catch (error) {
       // text() 在组装内同步执行，抛错会让整步失败：一律吞掉并告警
       logger.warn(`预算提示生成失败：${String(error)}`)
@@ -320,10 +320,11 @@ export function apply(ctx: Context, raw: Config): void {
       if (agent === undefined) return ''
       try {
         const merge = config.notesMerge.enabled && config.notesMerge.model !== undefined
-        return sections.get(`${agent.id}:${config.notes}:${config.history}:${merge}`, () => {
-          const identity = teams.identityOf(agent)
-          return identity === undefined ? undefined : notesSectionText(identity.role, { notes: config.notes, history: config.history, merge })
-        })
+        // 身份变了（普通会话开队 / 散队）键随之变，重算一次
+        const identity = teams.sessionOf(agent)
+        if (identity === undefined) return ''
+        return sections.get(`${agent.id}:${identity.role}:${config.notes}:${config.history}:${merge}`, () =>
+          notesSectionText(identity.role, { notes: config.notes, history: config.history, merge }))
       } catch (error) {
         logger.warn(`常驻说明生成失败：${String(error)}`)
         return ''
@@ -348,14 +349,14 @@ export function apply(ctx: Context, raw: Config): void {
   // ── context_new_window：随时可调；没写笔记时每窗口拒绝一次 ──
   ctx.effect(() => registerNewWindowTool(ctx, {
     request: (agent) => {
-      const identity = teams.identityOf(agent, true)
-      if (identity === undefined) throw new Error('当前会话不属于任何 AgentTeams 团队，context_new_window 不可用')
+      const identity = teams.sessionOf(agent, true)
+      if (identity === undefined) throw new Error('子会话不能使用 context_new_window')
       const window = windowFor(agent)
       const state = switchState(agent, window)
       const verdict = newWindowVerdict({
         window: window.index,
         fresh: freshness(agent, identity, window).fresh,
-        canWriteNotes: canWriteNotes(agent),
+        canWriteNotes: identity.role !== 'plain' && canWriteNotes(agent),
         state,
       })
       if (verdict === 'refuse') {
@@ -371,7 +372,7 @@ export function apply(ctx: Context, raw: Config): void {
 
   // ── history：只读历史工具（设计 §4.4；开关 history，即时生效）──
   switchable('dsh-token-budget: history tools', () => config.history, () => registerHistoryTools(ctx, {
-    isTeamAgent: agent => teams.identityOf(agent, true) !== undefined,
+    isActive: agent => teams.sessionOf(agent, true) !== undefined,
     load: (agent, signal) => historySource.load(agent.session.id, signal, () => ctx.sessions.flush(agent.session)),
     limits: () => config.historyOptions,
   }))
@@ -384,7 +385,7 @@ export function apply(ctx: Context, raw: Config): void {
 
   // ── context_remaining 工具（设计 §4.1；开关 contextTool，即时生效）──
   switchable('dsh-token-budget: context_remaining tool', () => config.budget.tool, () => registerContextRemainingTool(ctx, {
-    isTeamAgent: agent => teams.identityOf(agent, true) !== undefined,
+    isActive: agent => teams.sessionOf(agent, true) !== undefined,
     usage: agent => usageOf(ctx, agent.session),
     compactAtRatio: () => config.budget.compactAtRatio,
   }))
@@ -432,7 +433,7 @@ export function apply(ctx: Context, raw: Config): void {
   /** 每步组装前：决定是否换窗 / 进入兜底；返回本步是否换了窗。 */
   const beforeAssemble = async (agent: Agent, signal: AbortSignal): Promise<boolean> => {
     if (signal.aborted || gate.isRunning(agent.id)) return false
-    const identity = teams.identityOf(agent)
+    const identity = teams.sessionOf(agent)
     if (identity === undefined) return false
     engineFor(agent) // 尽早接管 summarize()：宿主自动压缩也要走模板
     const usage = usageOf(ctx, agent.session)
@@ -447,7 +448,7 @@ export function apply(ctx: Context, raw: Config): void {
       pressure: usage.pressure,
       compactAtRatio: config.budget.compactAtRatio,
       fallbackBufferTokens: config.budget.fallbackBufferTokens,
-      canWriteNotes: canWriteNotes(agent),
+      canWriteNotes: identity.role !== 'plain' && canWriteNotes(agent),
       turn,
       state,
     })

@@ -10,7 +10,7 @@
 
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import type { TeamIdentity } from '../team/identity.ts'
+import type { SessionIdentity, TeamIdentity } from '../team/identity.ts'
 import { notesRootOf, ownNotePath, physicalNotePath, WORKSPACE_NOTE } from '../notes/paths.ts'
 import { countLines, type NoteMeta } from '../notes/store.ts'
 
@@ -85,7 +85,7 @@ export interface HandoffSwitches {
 }
 
 export interface HandoffInput extends HandoffSwitches {
-  identity: TeamIdentity
+  identity: SessionIdentity
   /** 刚结束的窗口编号（history 模型口径）。 */
   previousWindow: number
   own: OwnNoteState
@@ -96,7 +96,10 @@ export interface HandoffInput extends HandoffSwitches {
 
 const HISTORY_TOOLS_TEXT = 'history_list_items / history_search_contents / history_read_item'
 
-function identityLine(identity: TeamIdentity, nameMax: number): string {
+const PLAIN_LINE = '你的身份：普通会话（不在团队中）。'
+
+function identityLine(identity: SessionIdentity, nameMax: number): string {
+  if (identity.role === 'plain') return PLAIN_LINE
   return `团队「${cut(identity.team.name, nameMax)}」（${identity.team.id}），你的身份：${identity.agentKey}（${identity.role === 'captain' ? '队长' : '成员'}）。`
 }
 
@@ -134,6 +137,7 @@ function ownNoteLine(input: HandoffInput, meta: NoteMeta | undefined, path: stri
 
 function build(input: HandoffInput, recentCount: number, nameMax: number, titleMax: number): string {
   const { identity } = input
+  if (identity.role === 'plain') return buildPlain(input)
   const lines = [HANDOFF_TITLE, identityLine(identity, nameMax), taskLine(identity, titleMax)]
   if (input.notes) {
     const own = ownNotePath(identity.team.id, identity.fileKey)
@@ -144,11 +148,20 @@ function build(input: HandoffInput, recentCount: number, nameMax: number, titleM
     if (recent.length > 0) lines.push(`最近改动的笔记：${recent.map(m => `${m.path}（${m.lines} 行，${clock(m.mtimeMs)}）`).join('；')}`)
   }
   if (input.teamHistory) lines.push(teamHistoryLine(identity))
-  lines.push(input.history
-    ? `上一窗口：w${input.previousWindow}，原文用 ${HISTORY_TOOLS_TEXT} 按窗口 id 回看`
-    : `上一窗口：w${input.previousWindow}`)
+  lines.push(previousWindowLine(input))
   lines.push(`以上是换窗时的快照，任务${input.notes ? '和笔记' : ''}以 agent_teams 工具${input.notes ? '和 team_notes ' : ''}为准。`)
   return lines.join('\n')
+}
+
+function previousWindowLine(input: HandoffInput): string {
+  return input.history
+    ? `上一窗口：w${input.previousWindow}，原文用 ${HISTORY_TOOLS_TEXT} 按窗口 id 回看`
+    : `上一窗口：w${input.previousWindow}`
+}
+
+/** 普通会话的交接：没有团队与任务（笔记在 0.6.0 步骤 4 接入）。 */
+function buildPlain(input: HandoffInput): string {
+  return [HANDOFF_TITLE, PLAIN_LINE, previousWindowLine(input), '以上是换窗时的快照。'].join('\n')
 }
 
 function fits(text: string, maxBytes: number): boolean {
@@ -171,7 +184,8 @@ export function handoffText(input: HandoffInput): string {
 }
 
 /** w1 精简版：身份 + 指针，不写任务、不带会变的元数据（§7-5）。 */
-export function initialHandoffText(identity: TeamIdentity, switches: HandoffSwitches, maxBytes: number): string {
+export function initialHandoffText(identity: SessionIdentity, switches: HandoffSwitches, maxBytes: number): string {
+  if (identity.role === 'plain') return ''
   const make = (nameMax: number): string => {
     const lines = [HANDOFF_TITLE, identityLine(identity, nameMax)]
     const pointers: string[] = []

@@ -124,3 +124,13 @@ test('常驻说明：成员记历史坐标；队长按合并开关提示清单�
   assert.match(notesSectionText('captain', { notes: true, history: true, merge: true }), /由合并模型自动处理/)
   assert.doesNotMatch(notesSectionText('member', { notes: true, history: true, merge: true }), /resolve|workspace-snapshots/)
 })
+
+test('普通会话（0.6.0 步骤 3）：交接只有身份与上一窗口；w1 不发；常驻说明不提团队', () => {
+  const plain = { role: 'plain', agentKey: 'plain', sessionId: 's', stateRoot: '/x' } as const
+  const text = handoffText({ identity: plain, previousWindow: 2, own: { kind: 'stale' }, metas: [], notes: false, history: true, teamHistory: true, recentNotes: 3, maxBytes: 4000 })
+  assert.equal(text, '【交接】\n你的身份：普通会话（不在团队中）。\n上一窗口：w2，原文用 history_list_items / history_search_contents / history_read_item 按窗口 id 回看\n以上是换窗时的快照。')
+  assert.equal(initialHandoffText(plain, { notes: true, history: true, teamHistory: true }, 4000), '')
+  const section = notesSectionText('plain', { notes: true, history: true })
+  assert.doesNotMatch(section, /团队|team_notes|workspace/)
+  assert.match(section, /history_\*/)
+})
