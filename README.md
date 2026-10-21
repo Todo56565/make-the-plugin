@@ -6,7 +6,7 @@
 - 作用于团队会话（队长与成员），0.6.0 起也作用于**普通会话**（不在团队中的顶层会话）；子会话不受影响。
 - 插件整体由 DSH 插件管理面板启停。
 
-> 状态：**0.5.1 已完成**（2026-10-20，tag `v0.5.1`，未发 Release）：headless profile 下可启动、锁/写入/结束代收尾/信件可见性等鲁棒性修复，见 [`docs/design/0.5.1.md`](docs/design/0.5.1.md)。0.5.0（tag `v0.5.0`）：兼容 DSH 0.2.1-rc.2 与 agent-teams 0.1.25、w1 交接只发一次、普通子会话隐藏本插件工具，设计见 [`docs/design/0.5.0.md`](docs/design/0.5.0.md)。0.4.0（workspace 双层记录）见 tag `v0.4.0` 与 [`docs/design/0.4.0-workspace-notes.md`](docs/design/0.4.0-workspace-notes.md)，0.3.0（换窗交接）见 tag `v0.3.0`。权威设计见 [`docs/design/plugin-design.md`](docs/design/plugin-design.md) 与各版本设计文档。
+> 状态：**0.6.0 已完成**（2026-10-21，tag `v0.6.0`，未发 Release）：普通模式（不开团队的会话也有换窗、交接与会话笔记）、普通会话与团队互接、交接精简、换窗记录进会话日志，见 [`docs/design/0.6.0.md`](docs/design/0.6.0.md)；接手请先读 [`docs/handoff/2026-10-21.md`](docs/handoff/2026-10-21.md)。0.5.1（tag `v0.5.1`）：headless profile 下可启动、锁/写入/结束代收尾/信件可见性等鲁棒性修复，见 [`docs/design/0.5.1.md`](docs/design/0.5.1.md)。0.5.0（tag `v0.5.0`）：兼容 DSH 0.2.1-rc.2 与 agent-teams 0.1.25、w1 交接只发一次、普通子会话隐藏本插件工具，设计见 [`docs/design/0.5.0.md`](docs/design/0.5.0.md)。0.4.0（workspace 双层记录）见 tag `v0.4.0` 与 [`docs/design/0.4.0-workspace-notes.md`](docs/design/0.4.0-workspace-notes.md)，0.3.0（换窗交接）见 tag `v0.3.0`。权威设计见 [`docs/design/plugin-design.md`](docs/design/plugin-design.md) 与各版本设计文档。
 
 ## 它解决什么
 
@@ -157,8 +157,13 @@ make-the-plugin/
 │   │   ├── plugin-design.md         权威设计规格（实现以此为准）
 │   │   ├── 0.3.0-handoff.md         0.3.0 换窗交接设计（已发布）
 │   │   ├── 0.4.0-workspace-notes.md 0.4.0 workspace 双层记录设计与实现拆分
+│   │   ├── 0.5.0.md / 0.5.1.md      0.5.x 设计与修复
+│   │   ├── 0.6.0.md                 0.6.0 普通模式与互接（最新）
 │   │   ├── future-ideas.md          远期想法（共议会、客户端数据通道、快照看板等）
+│   │   ├── future-council.md        共议会草案
+│   │   ├── newsnap-design.md        快照项目 newsnap 的设计（本插件代码不引用）
 │   │   └── 临时记录.md              设计讨论记录（只保留当前结论）
+│   ├── handoff/                   交接文档，按日期命名（YYYY-MM-DD.md），最新一份即当前状态
 │   ├── research/
 │   │   ├── 0.3.0-poc-results.md     0.3.0 设计 PoC 实测
 │   │   └── context-compare/         Codex 与 DSH 上下文机制取证、社区插件调研、探针脚本
@@ -171,6 +176,7 @@ make-the-plugin/
 
 - **插件代码**只放 `src/`，一个能力一个子目录；跨能力共用的放 `team/`、`window/`。
 - **设计变更**先改 `docs/design/plugin-design.md`，再改代码；讨论过程写进 `临时记录.md`。
+- **交接**：长时间停手前在 `docs/handoff/` 新建一份按日期命名的交接，并在上方状态行指向它。
 - **调研与取证**（报告、探针脚本、运行输出）放 `docs/research/`，按课题建子目录。
 - **构建产物** `lib/` 与 `node_modules/` 不入库（见 `.gitignore`）。
 - **运行时数据不入库**：插件运行时数据写在用户工作区的 `.agent-teams/.context/`，history 不落盘。
