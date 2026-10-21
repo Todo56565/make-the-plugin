@@ -3,7 +3,7 @@ import type { OwnNoteState } from '../prompt/handoff.ts'
 /**
  * 换窗状态与决策（设计 0.3.0 §3、§7-2、§9a-2~5、§9a-9、§9a-11）。纯逻辑，便于测试。
  *
- * 状态一律按会话 id 存：成员 Agent 每轮重建，挂在实例上的状态会丢（PoC-2.5）。
+ * 状态来自会话日志里的插件记录（0.6.0 E5b，见 switch-log.ts），按会话隔离、随日志重放。
  * 每份状态都带窗口编号，窗口变了（无论谁换的窗）就作废。
  */
 
@@ -22,8 +22,8 @@ export interface FallbackState {
   startedAt: number
   /** 进入兜底时的压力 + fallbackBufferTokens。 */
   deadline: number
-  /** 进入兜底那一轮的控制信号：之后组装时信号不同 ⇒ 已是新的一轮（§9a-9）。 */
-  turn: object | undefined
+  /** 进入兜底那一轮（最后一个 turn/start 的 seq）：之后组装时轮次不同 ⇒ 已是新的一轮（§9a-9、0.6.0 E5b）。 */
+  turn: number | undefined
 }
 
 export interface SessionSwitchState {
@@ -35,38 +35,6 @@ export interface SessionSwitchState {
   refused?: number
   /** 最近一次 team_notes 写自己笔记的窗口与时间。 */
   lastWrite?: { window: number; at: number }
-}
-
-/** 会话 id → 换窗状态。不随 agent/disposed 清理（成员 Agent 每轮重建，状态必须跨实例）。 */
-export class SwitchStates {
-  private readonly states = new Map<string, SessionSwitchState>()
-
-  get(sessionId: string): SessionSwitchState {
-    let state = this.states.get(sessionId)
-    if (state === undefined) {
-      state = {}
-      this.states.set(sessionId, state)
-    }
-    return state
-  }
-
-  peek(sessionId: string): SessionSwitchState | undefined {
-    return this.states.get(sessionId)
-  }
-
-  /** 丢掉不属于当前窗口的状态（换窗后调用）。 */
-  settle(sessionId: string, window: number): SessionSwitchState {
-    const state = this.get(sessionId)
-    if (state.fallback !== undefined && state.fallback.window !== window) delete state.fallback
-    if (state.newWindow !== undefined && state.newWindow !== window) delete state.newWindow
-    if (state.refused !== undefined && state.refused !== window) delete state.refused
-    return state
-  }
-
-  /** 记录一次写自己笔记。 */
-  recordWrite(sessionId: string, window: number, at: number): void {
-    this.get(sessionId).lastWrite = { window, at }
-  }
 }
 
 /** 笔记新鲜度：mtime ≥ 窗口开始，或本窗口记录到 team_notes 写自己笔记（§9a-7）。 */
@@ -122,13 +90,13 @@ export interface DecideInput {
   fallbackBufferTokens: number
   /** 本会话可见工具里有 team_notes。 */
   canWriteNotes: boolean
-  /** 本次组装的控制信号（每轮一个）。 */
-  turn: object | undefined
+  /** 本次组装所在的轮次（最后一个 turn/start 的 seq）。 */
+  turn: number | undefined
   state: SessionSwitchState
 }
 
 /**
- * 每步组装时的决策（调用前先 {@link SwitchStates.settle}）：
+ * 每步组装时的决策（state 只含当前窗口的状态，见 switchStateFrom）：
  * 1. 本窗口请求过换窗 ⇒ 换（tool）
  * 2. 队长：其余情况都不动（只提醒；宿主约 80% 压缩兜底）
  * 3. 成员兜底中：额度用完，或已是新的一轮 ⇒ 换（buffer）；否则继续等。写笔记本身不触发换窗

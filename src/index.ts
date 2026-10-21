@@ -22,8 +22,9 @@ import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-tools'
 import { Config, refreshSettings, toSettings, validateConfig, type Settings } from './config.ts'
 import { TeamDirectory, isTeamEvent } from './team/directory.ts'
-import { HANDOFF_SOURCE_KIND, handoffSentOf, needsInitialHandoff, registerWindowCounter, windowOf, type WindowInfo } from './window/counter.ts'
-import { SwitchStates, decide, freshnessOf, newWindowVerdict, ownNoteStateOf, type Freshness, type SwitchReason } from './window/state.ts'
+import { HANDOFF_SOURCE_KIND, foldedSwitchOf, handoffSentOf, inheritedOf, lastTurnOf, needsInitialHandoff, registerWindowCounter, windowOf, type WindowInfo } from './window/counter.ts'
+import { SwitchLog, hideFrom, hostAppend, switchStateFrom } from './window/switch-log.ts'
+import { decide, freshnessOf, newWindowVerdict, ownNoteStateOf, type Freshness, type SwitchReason } from './window/state.ts'
 import { NEW_WINDOW_TOOL, registerNewWindowTool } from './window/new-window-tool.ts'
 import { captainLevels, levelOf, memberLevels, usageOf } from './budget/usage.ts'
 import { FALLBACK_PROMPT, captainReminderText, memberReminderText } from './budget/reminder.ts'
@@ -107,8 +108,8 @@ export function apply(ctx: Context, raw: Config): void {
 
   const teams = new TeamDirectory(config.stateDir, message => logger.warn(message))
   const gate = new CompactionGate()
-  /** 换窗状态，按会话 id 存（成员 Agent 每轮重建，不能挂在实例上）。 */
-  const states = new SwitchStates()
+  /** 换窗状态：写进会话日志（0.6.0 E5b），按会话隔离，成员 Agent 每轮重建也不丢。 */
+  const switchLog = new SwitchLog({ read: session => foldedSwitchOf(ctx, session), append: hostAppend(), warn: message => logger.warn(message) })
   /** 正在进行的插件换窗原因（summarize() 据此写「你的笔记」一行）。 */
   const switching = new Map<string, SwitchReason>()
   const sections = new FrozenText()
@@ -143,6 +144,9 @@ export function apply(ctx: Context, raw: Config): void {
 
   const windowFor = (agent: Agent): WindowInfo =>
     windowOf(ctx, agent.session) ?? { index: 1, startTime: agent.session.header.createdAt }
+  /** 当前窗口的换窗状态（从会话日志折叠）。 */
+  const switchState = (agent: Agent, window = windowFor(agent)) =>
+    switchStateFrom(switchLog.folded(agent.session), inheritedOf(agent.session), window.index)
   /** 该会话现在能不能写笔记：notes 开着，且 team_notes 对它可见（tool_policy 可能裁掉）。 */
   const canWriteNotes = (agent: Agent): boolean => {
     if (!config.notes) return false
@@ -156,7 +160,7 @@ export function apply(ctx: Context, raw: Config): void {
     window: window.index,
     windowStart: window.startTime,
     mtimeMs: ownNoteMtime(identity),
-    lastWrite: states.peek(agent.id)?.lastWrite,
+    lastWrite: switchState(agent, window).lastWrite,
   })
 
   // ── 接管 summarize()：团队会话返回【交接】，零 LLM 请求 ──
@@ -174,8 +178,7 @@ export function apply(ctx: Context, raw: Config): void {
     const reason = switching.get(owner.id)
     let own: OwnNoteState = { kind: 'stale' }
     try {
-      const fallback = states.peek(owner.id)?.fallback
-      const startedAt = fallback !== undefined && fallback.window === window.index ? fallback.startedAt : undefined
+      const startedAt = switchState(owner, window).fallback?.startedAt
       own = ownNoteStateOf(freshness(owner, identity, window), startedAt, reason)
     } catch { /* 当作未更新 */ }
     let metas: ReturnType<typeof listNoteMetasSync> = []
@@ -242,8 +245,7 @@ export function apply(ctx: Context, raw: Config): void {
         const level = levelOf(usage.ratio, captainLevels(compactAtRatio, bucketStep))
         return level === undefined ? '' : captainReminderText(level, config.notes)
       }
-      const state = states.peek(agent.id)
-      if (state?.fallback !== undefined && state.fallback.window === windowFor(agent).index) return FALLBACK_PROMPT
+      if (switchState(agent).fallback !== undefined) return FALLBACK_PROMPT
       const levels = memberLevels(remindAtRatio, compactAtRatio, bucketStep)
       const level = levelOf(usage.ratio, levels)
       if (level === undefined) return ''
@@ -261,16 +263,15 @@ export function apply(ctx: Context, raw: Config): void {
   }), 'dsh-token-budget: budget context')
 
   // ── 普通子会话隐藏本插件工具（0.5.0 E1）：只看直接父会话是不是队长 ──
-  // 同一会话的 Agent 可能重建（成员每轮、压缩后），按会话 id 记住第一次的决定，保持前缀不变
-  const hideDecisions = new Map<string, boolean>()
+  // 同一会话的 Agent 可能重建（成员每轮、压缩后）：第一次的决定写进会话日志（0.6.0 E5b），重启 / 回退后不变，保持前缀
   ctx.on('agent/created', ({ agent }): undefined => {
     try {
       const header = agent.session.header
       if (header.parentSession === undefined) return undefined
-      let hide = hideDecisions.get(agent.id)
+      let hide = hideFrom(switchLog.folded(agent.session), inheritedOf(agent.session))
       if (hide === undefined) {
         hide = shouldHideTools({ id: agent.id, header }, listTeams(stateRootOf(header.cwd, config.stateDir)))
-        hideDecisions.set(agent.id, hide)
+        switchLog.record(agent.session, { kind: 'hide-tools', hide })
       }
       if (!hide) return undefined
       const own = OWN_TOOLS.filter(name => ctx.tools.get(name) !== undefined)
@@ -340,7 +341,7 @@ export function apply(ctx: Context, raw: Config): void {
     readMaxBytes: () => config.notesOptions.readMaxBytes,
     onWrite: (agent, identity, meta) => {
       if (meta.path !== ownNotePath(identity.team.id, identity.fileKey)) return
-      states.recordWrite(agent.id, windowFor(agent).index, Date.now())
+      switchLog.record(agent.session, { kind: 'note-write', window: windowFor(agent).index, at: Date.now() })
     },
   }))
 
@@ -350,7 +351,7 @@ export function apply(ctx: Context, raw: Config): void {
       const identity = teams.identityOf(agent, true)
       if (identity === undefined) throw new Error('当前会话不属于任何 AgentTeams 团队，context_new_window 不可用')
       const window = windowFor(agent)
-      const state = states.settle(agent.id, window.index)
+      const state = switchState(agent, window)
       const verdict = newWindowVerdict({
         window: window.index,
         fresh: freshness(agent, identity, window).fresh,
@@ -358,10 +359,10 @@ export function apply(ctx: Context, raw: Config): void {
         state,
       })
       if (verdict === 'refuse') {
-        state.refused = window.index
+        switchLog.record(agent.session, { kind: 'refused', window: window.index })
         logger.info(`会话 ${agent.id}（${identity.agentKey}）请求换窗被拒（w${window.index} 未写笔记）`)
       } else {
-        state.newWindow = window.index
+        switchLog.record(agent.session, { kind: 'new-window', window: window.index })
         logger.info(`会话 ${agent.id}（${identity.agentKey}）请求换窗（w${window.index}）`)
       }
       return verdict
@@ -416,10 +417,14 @@ export function apply(ctx: Context, raw: Config): void {
       switching.delete(agent.id)
       gate.end(agent.id)
       // 无论成败，本窗口的请求都已处理：失败时不再每步重试，宿主约 80% 自动压缩兜底
-      const state = states.peek(agent.id)
-      if (state !== undefined) {
-        if (state.newWindow === window.index) delete state.newWindow
-        if (state.fallback?.window === window.index) delete state.fallback
+      // 换窗成功后窗口号已变，按旧窗口号取状态
+      const state = switchStateFrom(switchLog.folded(agent.session), inheritedOf(agent.session), window.index)
+      if (state.newWindow !== undefined || state.fallback !== undefined) {
+        try {
+          switchLog.record(agent.session, { kind: 'settled', window: window.index })
+        } catch (error) {
+          logger.warn(`换窗记录写入失败：${String(error)}`)
+        }
       }
     }
   }
@@ -433,7 +438,8 @@ export function apply(ctx: Context, raw: Config): void {
     const usage = usageOf(ctx, agent.session)
     if (usage === undefined) return false
     const window = windowFor(agent)
-    const state = states.settle(agent.id, window.index)
+    const state = switchState(agent, window)
+    const turn = lastTurnOf(ctx, agent.session)
     const decision = decide({
       role: identity.role,
       window: window.index,
@@ -442,14 +448,14 @@ export function apply(ctx: Context, raw: Config): void {
       compactAtRatio: config.budget.compactAtRatio,
       fallbackBufferTokens: config.budget.fallbackBufferTokens,
       canWriteNotes: canWriteNotes(agent),
-      turn: signal,
+      turn,
       state,
     })
     switch (decision.kind) {
       case 'none':
         return false
       case 'enter-fallback':
-        state.fallback = { window: window.index, startedAt: Date.now(), deadline: decision.deadline, turn: signal }
+        switchLog.record(agent.session, { kind: 'fallback', window: window.index, startedAt: Date.now(), deadline: decision.deadline, turn: turn ?? null })
         logger.info(`会话 ${agent.id}（${identity.agentKey}）已用 ${(usage.ratio * 100).toFixed(1)}%，到换窗点，进入兜底（额度到 ${decision.deadline} token）`)
         return false
       case 'compact':
@@ -465,13 +471,13 @@ export function apply(ctx: Context, raw: Config): void {
     let switched = false
     let fallbackBefore = false
     if (agent !== undefined) {
-      fallbackBefore = states.peek(agent.id)?.fallback !== undefined
+      fallbackBefore = switchState(agent).fallback !== undefined
       if (signal !== undefined) switched = await beforeAssemble(agent, signal)
     }
     const assembly = await next()
     if (agent === undefined) return assembly
     // 进入兜底那一步：预算 context 已在 next() 里按新状态求值；换窗那一步要重算
-    if (!switched && fallbackBefore === (states.peek(agent.id)?.fallback !== undefined)) return assembly
+    if (!switched && fallbackBefore === (switchState(agent).fallback !== undefined)) return assembly
     return {
       ...assembly,
       contexts: assembly.contexts.map(entry => entry.name === BUDGET_CONTEXT_NAME

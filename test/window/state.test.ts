@@ -1,9 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { SwitchStates, decide, freshnessOf, newWindowVerdict, ownNoteStateOf, type DecideInput } from '../../src/window/state.ts'
+import { decide, freshnessOf, newWindowVerdict, ownNoteStateOf, type DecideInput } from '../../src/window/state.ts'
 
-const turnA = {}
-const turnB = {}
+const turnA = 10
+const turnB = 42
 
 function input(over: Partial<DecideInput>): DecideInput {
   return {
@@ -65,22 +65,6 @@ test('context_new_window：没写笔记每窗口只拒绝一次', () => {
   assert.equal(newWindowVerdict({ window: 2, fresh: false, canWriteNotes: true, state }), 'accept', '第二次放行')
   assert.equal(newWindowVerdict({ window: 3, fresh: false, canWriteNotes: true, state }), 'refuse', '新窗口重新计')
   assert.equal(newWindowVerdict({ window: 3, fresh: false, canWriteNotes: false, state }), 'accept', '写不了笔记不拒绝')
-})
-
-test('SwitchStates：按会话 id 存，换窗后旧窗口状态作废，写入记录保留', () => {
-  const states = new SwitchStates()
-  const s = states.get('sess')
-  s.fallback = { window: 1, startedAt: 0, deadline: 10, turn: turnA }
-  s.newWindow = 1
-  s.refused = 1
-  states.recordWrite('sess', 1, 123)
-  assert.equal(states.settle('sess', 1).fallback?.deadline, 10, '同窗口保留')
-  const after = states.settle('sess', 2)
-  assert.equal(after.fallback, undefined)
-  assert.equal(after.newWindow, undefined)
-  assert.equal(after.refused, undefined)
-  assert.deepEqual(after.lastWrite, { window: 1, at: 123 })
-  assert.equal(states.peek('other'), undefined)
 })
 
 test('交接笔记状态：只有兜底开始后写的才算最新', () => {

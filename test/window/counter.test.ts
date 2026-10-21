@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { HANDOFF_SOURCE_KIND, applyWindowEvent, needsInitialHandoff, windowInfoFrom, type WindowState } from '../../src/window/counter.ts'
 
 test('投影只记录 compaction/summary 的 seq 与时间', () => {
-  let state: WindowState = { summaries: [], handoffSent: false }
+  let state: WindowState = { summaries: [], handoffSent: false, switch: {} }
   state = applyWindowEvent(state, { type: 'user/message', seq: 0, time: 1 })
   const same = state
   state = applyWindowEvent(state, { type: 'compaction/end', seq: 1, time: 2 })
@@ -21,7 +21,7 @@ test('窗口编号与开始时间：与 history 模型同口径，跳过继承�
 })
 
 test('w1 交接：投影记录已发，只在 w1 且未发时要发', () => {
-  let state: WindowState = { summaries: [], handoffSent: false }
+  let state: WindowState = { summaries: [], handoffSent: false, switch: {} }
   const same = state
   state = applyWindowEvent(state, { type: 'user/message', seq: 0, time: 1, data: { source: { kind: 'user' } } })
   assert.equal(state, same, '别的 user 消息不算')

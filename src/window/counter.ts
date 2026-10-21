@@ -8,13 +8,15 @@
  * 会话投影只记录每个摘要事件的 (seq, time)：投影按会话隔离、随日志重放，resume 后自动恢复；
  * 继承前缀在读取时按 `session.inheritedEventCount` 过滤（投影里拿不到它）。
  *
- * 同一投影还记录 w1 交接是否已发（0.5.0 E4）：交接是一条只发一次的 user 消息。
+ * 同一投影还记录 w1 交接是否已发（0.5.0 E4）：交接是一条只发一次的 user 消息；
+ * 以及换窗插件记录的折叠结果与最后一个 turn/start 的 seq（0.6.0 E5b，见 switch-log.ts）。
  */
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-projection'
 import { z } from 'zod'
+import { applySwitchRecord, foldedSwitchSchema, parseSwitchRecord, SWITCH_RECORD_TYPE, type FoldedSwitch } from './switch-log.ts'
 
 export const WINDOW_PROJECTION_KEY = 'tokenBudgetWindow'
 /** w1 交接消息的 source.kind。 */
@@ -30,6 +32,10 @@ export interface WindowState {
   summaries: SummaryMark[]
   /** 会话日志里是否已有 w1 交接消息。 */
   handoffSent: boolean
+  /** 最后一个 turn/start 的 seq（判断「新的一轮」，替代控制信号对象身份）。 */
+  lastTurn?: number
+  /** 换窗插件记录的折叠结果。 */
+  switch: FoldedSwitch
 }
 
 declare module '@deepseek-ai/dsh-session-projection/types' {
@@ -41,6 +47,8 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
 const windowStateSchema = z.object({
   summaries: z.array(z.object({ seq: z.number().int().nonnegative(), time: z.number() })),
   handoffSent: z.boolean(),
+  lastTurn: z.number().optional(),
+  switch: foldedSwitchSchema,
 })
 
 /** 投影要看的事件字段。 */
@@ -49,6 +57,7 @@ export interface WindowEvent {
   seq: number
   time: number
   data?: unknown
+  ignorable?: boolean
 }
 
 function isHandoffMessage(event: WindowEvent): boolean {
@@ -61,6 +70,11 @@ function isHandoffMessage(event: WindowEvent): boolean {
 export function applyWindowEvent(state: WindowState, event: WindowEvent): WindowState {
   if (event.type === 'compaction/summary') return { ...state, summaries: [...state.summaries, { seq: event.seq, time: event.time }] }
   if (!state.handoffSent && isHandoffMessage(event)) return { ...state, handoffSent: true }
+  if (event.type === 'turn/start') return { ...state, lastTurn: event.seq }
+  if (event.type === SWITCH_RECORD_TYPE && event.ignorable === true) {
+    const record = parseSwitchRecord(event.data)
+    if (record !== undefined) return { ...state, switch: applySwitchRecord(state.switch, record, event.seq) }
+  }
   return state
 }
 
@@ -88,8 +102,8 @@ export function registerWindowCounter(ctx: Context): () => void {
   return ctx.sessionProjections.register({
     key: WINDOW_PROJECTION_KEY,
     stateSchema: windowStateSchema,
-    stateVersion: 3,
-    init: () => ({ summaries: [], handoffSent: false }),
+    stateVersion: 4,
+    init: () => ({ summaries: [], handoffSent: false, switch: {} }),
     apply: (state, event: SessionEvent) => applyWindowEvent(state, event as WindowEvent),
   })
 }
@@ -113,9 +127,34 @@ export function windowOf(ctx: Context, session: Session): WindowInfo | undefined
   try {
     const state = ctx.sessionProjections.stateOf(session, WINDOW_PROJECTION_KEY)
     if (state === undefined) return undefined
-    const inherited = Number(session.inheritedEventCount)
-    return windowInfoFrom(state.summaries, Number.isFinite(inherited) && inherited > 0 ? inherited : 0, session.header.createdAt)
+    return windowInfoFrom(state.summaries, inheritedOf(session), session.header.createdAt)
   } catch {
     return undefined
   }
 }
+
+function inheritedOf(session: Session): number {
+  const inherited = Number(session.inheritedEventCount)
+  return Number.isFinite(inherited) && inherited > 0 ? inherited : 0
+}
+
+/** 换窗记录折叠结果；投影不可用时返回 undefined。 */
+export function foldedSwitchOf(ctx: Context, session: Session): FoldedSwitch | undefined {
+  try {
+    return ctx.sessionProjections.stateOf(session, WINDOW_PROJECTION_KEY)?.switch
+  } catch {
+    return undefined
+  }
+}
+
+/** 本会话最后一个 turn/start 的 seq（继承前缀里的不算）；没有返回 undefined。 */
+export function lastTurnOf(ctx: Context, session: Session): number | undefined {
+  try {
+    const turn = ctx.sessionProjections.stateOf(session, WINDOW_PROJECTION_KEY)?.lastTurn
+    return turn !== undefined && turn >= inheritedOf(session) ? turn : undefined
+  } catch {
+    return undefined
+  }
+}
+
+export { inheritedOf }
