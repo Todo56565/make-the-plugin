@@ -3,7 +3,7 @@
 `dsh-token-budget` 是 [DeepSeek Harness（DSH）](https://github.com/deepseek-ai/deepseek-harness) 的独立插件，作为社区插件 [`@nanmicoder/dsh-agent-teams`](https://github.com/NanmiCoder/dsh-agent-teams)（基线 `0.1.23`）的**补丁插件**：
 
 - **不修改原插件源码**，与社区原版并存；原版升级不会覆盖本插件。
-- **只作用于团队会话**（队长与成员），普通会话不受影响。
+- 作用于团队会话（队长与成员），0.6.0 起也作用于**普通会话**（不在团队中的顶层会话）；子会话不受影响。
 - 插件整体由 DSH 插件管理面板启停。
 
 > 状态：**0.5.1 已完成**（2026-10-20，tag `v0.5.1`，未发 Release）：headless profile 下可启动、锁/写入/结束代收尾/信件可见性等鲁棒性修复，见 [`docs/design/0.5.1.md`](docs/design/0.5.1.md)。0.5.0（tag `v0.5.0`）：兼容 DSH 0.2.1-rc.2 与 agent-teams 0.1.25、w1 交接只发一次、普通子会话隐藏本插件工具，设计见 [`docs/design/0.5.0.md`](docs/design/0.5.0.md)。0.4.0（workspace 双层记录）见 tag `v0.4.0` 与 [`docs/design/0.4.0-workspace-notes.md`](docs/design/0.4.0-workspace-notes.md)，0.3.0（换窗交接）见 tag `v0.3.0`。权威设计见 [`docs/design/plugin-design.md`](docs/design/plugin-design.md) 与各版本设计文档。
@@ -19,6 +19,7 @@
 5. **笔记**：每个成员一份独立笔记，团队共享一份 `workspace.md`（只有队长能写；成员任务结束时的笔记快照进入待合并清单，由队长或外接模型合并进去）。
 6. **记录**：任务终态全文、成员笔记快照、`workspace.md` 每次修改前的快照都留在 `records/`，只读可查；团队代结束后自动归档。
 7. **只读历史**：成员可以回看本会话先前窗口里被隐藏的原始消息，以及团队来往的信。
+8. **普通会话（0.6.0）**：不开团队的会话同样有提醒、换窗、【交接】、`context_*` 与 `history_*`，换窗节奏由 `plainPace` 选按队员（默认）或按队长。它有一份自己的会话笔记（`sessions/<会话>.md`，这条会话线的工作记忆），也能读写 `workspace.md`（项目长期共享的知识）。开队后这份会话笔记就是队长笔记，队员读 `captain.md` 读到的就是它；散队后回到普通会话，笔记原地还在。
 
 ## 功能
 
@@ -73,6 +74,7 @@ dsh --profile <profile>             # 或 dsh web --profile <profile>
 | `compactAtRatio` | `0.45` | 成员换窗的占用比例；队长在此处与再后一个步长各提醒一次（最低 `0.03`） |
 | `bucketStep` | `0.03` | 提醒档位步长。成员档位 = `remindAt + k × step` 且小于 `compactAt`，不整除时去掉最后一档（只剩一档时保留）：默认 37% / 40% |
 | `fallbackBufferTokens` | `16384` | 成员到换窗点后补记笔记的额外额度（token） |
+| `plainPace` | `member` | 普通会话的换窗节奏：`member` 同成员（到 `compactAtRatio` 先兜底再换窗）/ `captain` 同队长（只提醒） |
 | `notesMerge` | `false` | 由外接模型合并待合并清单 |
 | `mergeProvider` / `mergeModel` / `mergeReasoningEffort` | 空 | 合并所用模型；`notesMerge` 开启且选了模型才会合并 |
 | `mergeRecentTasks` | `false` | 材料 a：附上次成功合并以来的任务全文（至多 16,000 字节，超出保留最新） |
@@ -95,6 +97,7 @@ dsh --profile <profile>             # 或 dsh web --profile <profile>
 - 换窗后，新窗口开头是【交接】（在摘要位置），列出身份、任务（含 `attempt_id`）、笔记和回看工具；成员用 `team_notes` 读回笔记，缺的用 `history_*` / `team_history` 查原文。
 - 成员完成或失败的任务（带成员笔记快照）会进入待合并清单（虚拟文件 `workspace.pending.md`，读 `workspace.md` 时附带）。保持 `notesMerge` 关闭时，队长读清单指向的快照、整理进 `workspace.md` 后用 `resolve` 删除条目；打开 `notesMerge` 并选模型后由插件自动合并，队长只需处理剩下的条目。
 - 成员笔记里「仍在处理的请求」记为 `w<n>/e<seq>`，换窗后可用 `history_*` 按坐标查原文。
+- 普通会话：用 `team_notes` 写自己的笔记（进度、下一步）；值得长期留下的约定、决定写进 `workspace.md`。普通会话看不到队员笔记、待合并清单和全文记录，可读 `records/workspace-snapshots/`。
 
 成员工具策略：agent-teams 允许部署方在它的配置里声明 `toolPolicies`，再给成员挑一个策略。策略若写了 `allow`，成员就**只看得到列出的工具**（agent-teams 会自动补上它自己的 4 个协调工具，但不会补本插件的）。这时要把本插件的工具名一起列进去，否则成员看不到它们：
 
@@ -106,7 +109,7 @@ toolPolicies:
 
 只用 `deny`、或成员没选策略时，不需要处理。成员看不到 `team_notes` 时，到换窗点不兜底，直接换窗。
 
-运行时文件都在工作区 `.agent-teams/.context/` 下（agent-teams 默认把 `.agent-teams` 排除在交付审计之外）：`notes/`（在用笔记）、`shared/`（`workspace.md`、待合并清单、锁）、`records/`（全文、快照、已结束团队代）、`state/`（游标与序号）。物理路径按团队代分目录，模型看到的虚拟路径不变。历史工具只读会话文件，不另存数据。
+运行时文件都在工作区 `.agent-teams/.context/` 下（agent-teams 默认把 `.agent-teams` 排除在交付审计之外，普通会话也用这里）：`notes/`（在用笔记；会话笔记在 `notes/sessions/`）、`shared/`（`workspace.md`、待合并清单、锁）、`records/`（全文、快照、已结束团队代）、`state/`（游标与序号）。物理路径按团队代分目录，模型看到的虚拟路径不变。历史工具只读会话文件，不另存数据。
 
 ## 可选：关闭会话文件压缩（实验）
 
@@ -138,14 +141,14 @@ make-the-plugin/
 ├── src/                         插件源码（TypeScript）
 │   ├── index.ts                   入口：name / inject / Config / apply()
 │   ├── config.ts                  配置 schema（Schemastery）与默认值
-│   ├── team/                      团队身份解析、team.json 缓存读取
+│   ├── team/                      会话身份解析（普通会话 / 队长 / 成员）、team.json 缓存读取
 │   ├── client/                    浏览器端设置页（DSH 插件管理面板 → 配置）：表单状态、模型目录下拉、中英文文案
 │   ├── context/                   `.context` 目录布局（各区路径、团队代）、跨插件文件锁、原子写
 │   ├── records/                   全文记录（终态任务追加到 records/full 分卷，游标缓存与重建、首次运行基线）；已结束团队代的发现、归档与按天清理
-│   ├── window/                    窗口投影（history 口径）、换窗状态与决策、context_new_window 工具
+│   ├── window/                    窗口投影（history 口径）、换窗状态与决策（会话日志 switch 记录）、context_new_window 工具
 │   ├── budget/                    占用计算、提醒与兜底文本、换窗压缩与 summarize() 接管
 │   ├── prompt/                    常驻规则 section、【交接】模板（完整版 / w1 精简版）
-│   ├── notes/                     笔记存储与虚拟路径、team_notes 工具（含行范围读）、成员笔记快照、workspace.md 修改前快照与余弦取样、待合并清单（shared/pending/nanmi/<团队>@<代>.jsonl → 虚拟 workspace.pending.md）、自动合并与合并材料裁剪
+│   ├── notes/                     笔记存储与虚拟路径（含会话笔记 sessions/<会话>.md 与队长笔记映射）、team_notes 工具（含行范围读）、成员笔记快照、workspace.md 修改前快照与余弦取样、待合并清单（shared/pending/nanmi/<团队>@<代>.jsonl → 虚拟 workspace.pending.md）、自动合并与合并材料裁剪
 │   ├── history/                   persistence 只读读取、窗口索引、history 工具
 │   └── team-history/              团队信箱只读视图与 team_history 工具
 ├── test/                        单元测试（node --test），目录结构与 src/ 对应

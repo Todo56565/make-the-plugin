@@ -33,7 +33,7 @@ export const en = {
   invalid: 'Invalid value', overridden: 'Overridden', reset: 'Reset to default',
   unavailable: 'Settings are unavailable.', readOnly: 'This deployment stores settings read-only.',
   saveFailed: 'The deployment did not accept these values.', save: 'Save', saving: 'Saving…',
-  summary: 'Context budget, notes, and history for AgentTeams sessions',
+  summary: 'Context budget, notes, and history for top-level and AgentTeams sessions',
 }
 
 export type TokenBudgetKey = keyof typeof en
@@ -68,7 +68,7 @@ export const zh: Record<TokenBudgetKey, string> = {
   invalid: '值无效', overridden: '已覆盖', reset: '恢复默认',
   unavailable: '设置暂不可用', readOnly: '本部署的设置为只读',
   saveFailed: '本部署没有接受这些值', save: '保存', saving: '保存中…',
-  summary: 'AgentTeams 会话的上下文预算、笔记与历史',
+  summary: '顶层会话与 AgentTeams 会话的上下文预算、笔记与历史',
 }
 
 export function formLabels(t: (key: TokenBudgetKey) => string): SettingsFormLabels {

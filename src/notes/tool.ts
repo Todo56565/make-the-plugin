@@ -121,10 +121,10 @@ export async function runTeamNotes(
 export function registerTeamNotesTool(ctx: Context, deps: NotesToolDeps): () => void {
   return ctx.tools.register(defineTool({
     name: TEAM_NOTES_TOOL,
-    description: '团队笔记，存在磁盘上，上下文压缩后不丢失。',
+    description: '笔记，存在磁盘上，换窗或压缩后不丢失。',
     parameters: {
       action: { type: 'string', enum: ['list', 'read', 'write', 'append', 'search', 'resolve'], required: true, description: 'list / read / write（全量重写）/ append / search（字面，区分大小写）/ resolve（队长按 id 删除待合并清单条目）' },
-      path: { type: 'string', description: '省略为自己的笔记；workspace.md 为共享笔记（只有队长能写，读取时附带待合并清单）；workspace.pending.md 为待合并清单（只读）；<成员>.md 为队友笔记（只读）；records/… 为插件维护的记录（只读）。可读本团队所有笔记，每个文件有大小上限' },
+      path: { type: 'string', description: '省略为自己的笔记；workspace.md 为项目共享笔记（团队成员不能写，团队里读取时附带待合并清单）；团队中：workspace.pending.md 为待合并清单（只读），<成员>.md 为队友笔记（只读），records/… 为插件维护的记录（只读），可读本团队所有笔记。每个文件有大小上限' },
       start_line: { type: 'integer', description: 'read 的起始行（从 1 起，含）；大文件不给范围时只返回末尾一段' },
       stop_line: { type: 'integer', description: 'read 的结束行（含）；省略为读到末尾，单次返回仍有字节上限' },
       content: { type: 'string', description: 'write / append 的内容（Markdown）' },
