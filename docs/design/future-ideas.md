@@ -36,6 +36,8 @@
 - **LLM 摘要作为可选项加回**：0.3.0 换窗默认不调用模型（对齐 Codex token-budget），以后作为可选项加回，届时再做模型选择。
 - **适配 `@deepseek-ai/dsh-experimental-agent-team-profile`**：暂缓。
 
+- E5a 键与目录逻辑简化（用户 2026-10-21：「逻辑有点绕，后续需优化」）：现在 completed / failed 用带 attemptId 的新键，cancelled 用旧键，而 cancelled 的快照目录却带 id，`ended.ts` 只好新旧键任一命中就保留。可考虑所有状态统一带 id（有 id 就带）、或目录与键用同一规则，去掉这条分叉。
+
 ## 3. 上游 NanmiCoder/dsh-agent-teams：问题与可优化点
 
 > 依据 agent-teams 0.1.23（commit `1094b84`）源码。issue 由用户自己发，不代发。
