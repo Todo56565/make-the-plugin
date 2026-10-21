@@ -21,6 +21,8 @@ export interface BudgetConfig {
   fallbackBufferTokens: number
   /** 是否注册 context_remaining 工具（默认 true）。 */
   tool: boolean
+  /** 普通会话的换窗节奏：member 同成员（到点兜底换窗，默认）/ captain 同队长（只提醒）。 */
+  plainPace: 'member' | 'captain'
 }
 
 /** 共享笔记自动合并（默认关闭 = 由队长维护 workspace.md）。 */
@@ -112,6 +114,7 @@ export interface Config {
   bucketStep: Volatile<number>
   fallbackBufferTokens: Volatile<number>
   contextTool: Volatile<boolean>
+  plainPace: Volatile<string>
   notesMerge: Volatile<boolean>
   mergeProvider: Volatile<string | undefined>
   mergeModel: Volatile<string | undefined>
@@ -152,10 +155,11 @@ export const Config = z.object({
   history: z.boolean().default(true).description('只读历史工具：读取本会话先前窗口中被压缩隐藏的原始消息').volatile(),
   teamHistory: z.boolean().default(true).description('团队信件回看工具 team_history：含已读和已作废的信').volatile(),
   remindAtRatio: ratio(0.37, REMIND_MIN_RATIO).description('成员上下文已用比例达到该值起提醒（须小于 compactAtRatio，最低 0.01）').volatile(),
-  compactAtRatio: ratio(0.45, COMPACT_MIN_RATIO).description('上下文已用比例达到该值时成员换窗（仅团队会话；队长只提醒；最低 0.03）').volatile(),
+  compactAtRatio: ratio(0.45, COMPACT_MIN_RATIO).description('上下文已用比例达到该值时成员与普通会话换窗（队长只提醒；最低 0.03）').volatile(),
   bucketStep: z.number().min(0.01).max(0.5).step(0.01).default(0.03).description('提醒档位步长').volatile(),
   fallbackBufferTokens: z.natural().min(1).default(16_384).description('成员到换窗点后补记笔记的额外额度（token）').volatile(),
   contextTool: z.boolean().default(true).description('注册 context_remaining 工具').volatile(),
+  plainPace: z.string().default('member').description('普通会话（不在团队中）的换窗节奏：member 同成员，到点换窗 / captain 同队长，只提醒').volatile(),
   notesMerge: z.boolean().default(false).description('自动把待合并清单里的成员笔记快照合并进 workspace.md；关闭时由队长维护').volatile(),
   mergeProvider: z.string().description('合并使用的模型提供方').volatile(),
   mergeModel: z.string().description('合并使用的模型').volatile(),
@@ -201,6 +205,7 @@ export function toSettings(raw: Config | { [K in keyof Config]: unknown }): Sett
       bucketStep: config.bucketStep,
       fallbackBufferTokens: config.fallbackBufferTokens,
       tool: config.contextTool,
+      plainPace: config.plainPace === 'captain' ? 'captain' : 'member',
     },
     notesMerge: {
       enabled: config.notesMerge,

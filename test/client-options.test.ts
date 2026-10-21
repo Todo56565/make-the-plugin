@@ -48,3 +48,9 @@ test('normalizePicks：逗号/空格分隔正整数，去重升序；不合格�
   assert.equal(normalizePicks('a'), undefined)
   assert.equal(normalizePicks('1.5'), undefined)
 })
+
+test('plainPace：默认按队员；captain 按队长；其他值退回默认', () => {
+  assert.equal(toSettings(Config({})).budget.plainPace, 'member')
+  assert.equal(toSettings(Config({ plainPace: 'captain' })).budget.plainPace, 'captain')
+  assert.equal(toSettings(Config({ plainPace: 'x' })).budget.plainPace, 'member')
+})

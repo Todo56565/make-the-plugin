@@ -82,8 +82,8 @@ export type Decision =
   | { kind: 'enter-fallback'; deadline: number }
 
 export interface DecideInput {
-  /** 普通会话与成员同样到点进兜底 / 换窗；队长只提醒（0.6.0 §2.2）。 */
-  role: 'plain' | 'captain' | 'member'
+  /** 换窗节奏：member 到点进兜底 / 换窗，captain 只提醒（普通会话按 plainPace 取其一）。 */
+  role: 'captain' | 'member'
   window: number
   ratio: number
   pressure: number

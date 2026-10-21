@@ -6,7 +6,7 @@ import type { HostObservable, InjectFace, PropsLocale, PropsRuntime } from '@dee
 import type { CatalogState } from './catalog.ts'
 import { NS, formLabels, type TokenBudgetKey } from './locales.ts'
 import { effortOptions, modelOptions, providerOptions, type Option } from './model-options.ts'
-import { SNAPSHOT_MODES, type FieldName, type TokenBudgetFormInjected, type TokenBudgetFormState } from './settings-form.ts'
+import { PLAIN_PACES, SNAPSHOT_MODES, type FieldName, type TokenBudgetFormInjected, type TokenBudgetFormState } from './settings-form.ts'
 import css from './TokenBudgetSettings.module.css'
 
 export interface TokenBudgetSettingsInjected extends TokenBudgetFormInjected {
@@ -113,6 +113,18 @@ export function TokenBudgetSettings(props: TokenBudgetSettingsProps) {
       {value('compactAtRatio', 'compactAtRatio', 'compactAtRatioHint')}
       {value('bucketStep', 'bucketStep', 'bucketStepHint')}
       {value('fallbackBufferTokens', 'fallbackBufferTokens', 'fallbackBufferTokensHint')}
+      <div className={css.field}>
+        <div className={css.toolbar}>
+          <label htmlFor="token-budget-plainPace">{t('plainPace')}</label>
+          {state.plainPace.overridden && <><Tag tone="neutral">{t('overridden')}</Tag>
+            <Button size="sm" disabled={disabled} onClick={() => { reset('plainPace') }}>{t('reset')}</Button></>}
+        </div>
+        <select id="token-budget-plainPace" value={state.plainPace.text === '' ? 'member' : state.plainPace.text} disabled={disabled}
+          onChange={(event) => { edit('plainPace', event.target.value === 'member' ? '' : event.target.value) }}>
+          {PLAIN_PACES.map(pace => <option key={pace} value={pace}>{t(pace === 'member' ? 'paceMember' : 'paceCaptain')}</option>)}
+        </select>
+        <p className={css.hint}>{t('plainPaceHint')}</p>
+      </div>
     </div>
     <div className={css.section}>
       <h3 className={css.title}>{t('sectionWorkspace')}</h3>

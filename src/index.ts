@@ -231,6 +231,10 @@ export function apply(ctx: Context, raw: Config): void {
     return engine
   }
 
+  /** 换窗节奏：队长只提醒，成员到点换窗；普通会话按设置 plainPace（默认同成员）。 */
+  const paceOf = (identity: SessionIdentity): 'captain' | 'member' =>
+    identity.role === 'plain' ? config.budget.plainPace : identity.role
+
   // ── 预算提醒 / 兜底提示（runtime context）──
   const budgetText = (assembly: { agent?: Agent }): string => {
     const agent = assembly.agent
@@ -241,15 +245,16 @@ export function apply(ctx: Context, raw: Config): void {
       const usage = usageOf(ctx, agent.session)
       if (usage === undefined) return ''
       const { remindAtRatio, compactAtRatio, bucketStep } = config.budget
-      if (identity.role === 'captain') {
+      const notes = config.notes && identity.role !== 'plain'
+      if (paceOf(identity) === 'captain') {
         const level = levelOf(usage.ratio, captainLevels(compactAtRatio, bucketStep))
-        return level === undefined ? '' : captainReminderText(level, config.notes)
+        return level === undefined ? '' : captainReminderText(level, notes)
       }
       if (switchState(agent).fallback !== undefined) return FALLBACK_PROMPT
       const levels = memberLevels(remindAtRatio, compactAtRatio, bucketStep)
       const level = levelOf(usage.ratio, levels)
       if (level === undefined) return ''
-      return memberReminderText({ level, first: level === levels[0], compactAtRatio, notes: config.notes && identity.role !== 'plain' })
+      return memberReminderText({ level, first: level === levels[0], compactAtRatio, notes })
     } catch (error) {
       // text() 在组装内同步执行，抛错会让整步失败：一律吞掉并告警
       logger.warn(`预算提示生成失败：${String(error)}`)
@@ -442,7 +447,7 @@ export function apply(ctx: Context, raw: Config): void {
     const state = switchState(agent, window)
     const turn = lastTurnOf(ctx, agent.session)
     const decision = decide({
-      role: identity.role,
+      role: paceOf(identity),
       window: window.index,
       ratio: usage.ratio,
       pressure: usage.pressure,

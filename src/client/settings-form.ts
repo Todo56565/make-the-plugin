@@ -14,7 +14,11 @@ export const MODEL_FIELDS = ['mergeProvider', 'mergeModel', 'mergeReasoningEffor
 export const TEXT_FIELDS = ['stateDir'] as const
 /** 材料 b 模式（off / cosine / custom）；空 = 默认 off。 */
 export const SNAPSHOT_MODES = ['off', 'cosine', 'custom'] as const
-export const CHOICE_FIELDS = ['mergeSnapshots'] as const
+/** 普通会话换窗节奏（member / captain）；空 = 默认 member。 */
+export const PLAIN_PACES = ['member', 'captain'] as const
+/** 下拉字段 → 可选值；第一个是默认值，选默认值即清除覆盖。 */
+export const CHOICES = { mergeSnapshots: SNAPSHOT_MODES, plainPace: PLAIN_PACES } as const
+export const CHOICE_FIELDS = ['mergeSnapshots', 'plainPace'] as const
 /** 自定义快照编号：逗号分隔的正整数；空 = 清除。 */
 export const PICKS_FIELDS = ['mergeSnapshotPicks'] as const
 
@@ -75,10 +79,11 @@ function optionalTextField(field: string): SettingsFieldSpec {
   return { ...settingsTextField(field), parse: text => text.trim() === '' ? { kind: 'clear' } : { kind: 'set', value: text.trim() } }
 }
 
-function choiceField(field: string): SettingsFieldSpec {
+function choiceField(field: typeof CHOICE_FIELDS[number]): SettingsFieldSpec {
+  const options: readonly string[] = CHOICES[field]
   return {
     ...settingsTextField(field),
-    parse: text => text === '' || text === 'off' ? { kind: 'clear' } : (SNAPSHOT_MODES as readonly string[]).includes(text) ? { kind: 'set', value: text } : undefined,
+    parse: text => text === '' || text === options[0] ? { kind: 'clear' } : options.includes(text) ? { kind: 'set', value: text } : undefined,
   }
 }
 
