@@ -36,6 +36,8 @@
 - 先只做**共议会**；常驻合并助手以后单独讨论。
 - 共议会只做**点对点互发消息**，不做共享讨论区／黑板。
 - 形态向 Claude Code 的 cross-session messaging 看齐（`ListAgents` / `SendMessage`、接收方 accept / hold / refuse、来自其他会话的消息不算用户授权、防环限流、`notify_when_idle`）。社区四个插件只借设计，见 `docs/reference/dsh-plugin-survey-2026-10-14/03-peer-messaging.md` §3。
+- 可达范围：默认只在**同一工作区**的主 Agent（顶层会话）之间互发；跨工作区由插件设置页的开关打开，默认关。
+- agent-teams 成员**不能**加入主 Agent 之间的会话，既不能收也不能发（用户：「不然会非常混乱」）。
 
 ## 2. 其他待排期想法
 
