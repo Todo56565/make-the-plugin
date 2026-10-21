@@ -31,7 +31,7 @@ import { FALLBACK_PROMPT, captainReminderText, memberReminderText } from './budg
 import { CONTEXT_REMAINING_TOOL, registerContextRemainingTool } from './budget/tool.ts'
 import { CompactionGate, compactionEngineOf, releaseSummarize, takeOverSummarize } from './budget/compact.ts'
 import { TEAM_NOTES_TOOL, createStoreCache, registerTeamNotesTool } from './notes/tool.ts'
-import { ownNotePath } from './notes/paths.ts'
+import { selfNotePath } from './notes/paths.ts'
 import { sessionRef, snapshotOnWindowSwitch } from './notes/snapshot.ts'
 import { TeamToolCalls, mergePendingBatch, type Generate } from './notes/merge.ts'
 import { sweepEndedGenerations } from './records/ended.ts'
@@ -159,7 +159,7 @@ export function apply(ctx: Context, raw: Config): void {
   const freshness = (agent: Agent, identity: SessionIdentity, window: WindowInfo): Freshness => freshnessOf({
     window: window.index,
     windowStart: window.startTime,
-    mtimeMs: identity.role === 'plain' ? undefined : ownNoteMtime(identity),
+    mtimeMs: ownNoteMtime(identity),
     lastWrite: switchState(agent, window).lastWrite,
   })
 
@@ -183,21 +183,21 @@ export function apply(ctx: Context, raw: Config): void {
     } catch { /* 当作未更新 */ }
     let metas: ReturnType<typeof listNoteMetasSync> = []
     try {
-      if (config.notes && identity.role !== 'plain') metas = listNoteMetasSync(identity)
+      if (config.notes) metas = listNoteMetasSync(identity)
     } catch { /* 元数据缺失不影响交接 */ }
     const text = handoffText({
       identity,
       previousWindow: window.index,
       own,
       metas,
-      notes: config.notes && identity.role !== 'plain',
+      notes: config.notes,
       history: config.history,
       teamHistory: config.teamHistory,
       recentNotes: config.notesOptions.hintRecentNotes,
       maxBytes: config.notesOptions.hintMaxBytes,
     })
     logger.info(`会话 ${owner.id}（${identity.agentKey}）换窗：w${window.index} → w${window.index + 1}，原因 ${reason ?? 'host'}，笔记 ${own.kind}`)
-    if (config.notes && identity.role !== 'plain') {
+    if (config.notes && identity.role === 'member') {
       try {
         const seq = Number(owner.session.seq) - 1
         for (const pending of snapshotOnWindowSwitch(identity, sessionRef(owner.session.id, window.index, seq))) {
@@ -245,7 +245,7 @@ export function apply(ctx: Context, raw: Config): void {
       const usage = usageOf(ctx, agent.session)
       if (usage === undefined) return ''
       const { remindAtRatio, compactAtRatio, bucketStep } = config.budget
-      const notes = config.notes && identity.role !== 'plain'
+      const notes = config.notes
       if (paceOf(identity) === 'captain') {
         const level = levelOf(usage.ratio, captainLevels(compactAtRatio, bucketStep))
         return level === undefined ? '' : captainReminderText(level, notes)
@@ -293,9 +293,9 @@ export function apply(ctx: Context, raw: Config): void {
   const initialHandoff = (agent: Agent): string => {
     try {
       if (!needsInitialHandoff(windowFor(agent).index, handoffSentOf(ctx, agent.session) ?? true)) return ''
-      const identity = teams.identityOf(agent)
+      const identity = teams.sessionOf(agent)
       if (identity === undefined) return ''
-      const key = `${agent.id}:${config.notes}:${config.teamHistory}`
+      const key = `${agent.id}:${identity.role}:${config.notes}:${config.teamHistory}`
       return initialHandoffs.get(key, () => initialHandoffText(identity, {
         notes: config.notes, history: config.history, teamHistory: config.teamHistory,
       }, config.notesOptions.hintMaxBytes))
@@ -341,12 +341,12 @@ export function apply(ctx: Context, raw: Config): void {
   const storeFor = createStoreCache(() => config.notesOptions.maxFileBytes, () => config.notesOptions.workspaceMaxBytes, () => ({ keep: config.notesOptions.workspaceSnapshotKeep, pinned: new Set(config.notesMerge.snapshotPicks) }))
   registerNotesMerge(ctx, config, storeFor, logger, locateMember)
   switchable('dsh-token-budget: team_notes tool', () => config.notes, () => registerTeamNotesTool(ctx, {
-    identityOf: agent => teams.identityOf(agent, true),
+    identityOf: agent => teams.sessionOf(agent, true),
     storeFor,
     maxResults: config.historyOptions.maxResults,
     readMaxBytes: () => config.notesOptions.readMaxBytes,
     onWrite: (agent, identity, meta) => {
-      if (meta.path !== ownNotePath(identity.team.id, identity.fileKey)) return
+      if (meta.path !== selfNotePath(identity)) return
       switchLog.record(agent.session, { kind: 'note-write', window: windowFor(agent).index, at: Date.now() })
     },
   }))
@@ -361,7 +361,7 @@ export function apply(ctx: Context, raw: Config): void {
       const verdict = newWindowVerdict({
         window: window.index,
         fresh: freshness(agent, identity, window).fresh,
-        canWriteNotes: identity.role !== 'plain' && canWriteNotes(agent),
+        canWriteNotes: canWriteNotes(agent),
         state,
       })
       if (verdict === 'refuse') {
@@ -453,7 +453,7 @@ export function apply(ctx: Context, raw: Config): void {
       pressure: usage.pressure,
       compactAtRatio: config.budget.compactAtRatio,
       fallbackBufferTokens: config.budget.fallbackBufferTokens,
-      canWriteNotes: identity.role !== 'plain' && canWriteNotes(agent),
+      canWriteNotes: canWriteNotes(agent),
       turn,
       state,
     })

@@ -43,10 +43,21 @@ export function notesSectionText(role: SessionRole, switches: SectionSwitches): 
   return lines.join('\n')
 }
 
-/** 普通会话的常驻说明（笔记在 0.6.0 步骤 4 接入）。 */
+/** 普通会话的常驻说明（0.6.0 §3.1：自己的笔记 = 这条会话线的工作记忆，workspace.md = 项目长期共享的知识）。 */
 function plainSectionText(switches: SectionSwitches): string {
-  const lines = ['## 换窗', '上下文接近预算时会换到新窗口，早先的原始消息不再在上下文中；新窗口开头的【交接】列出上一窗口和回看工具。']
-  if (switches.history) lines.push('换窗后缺的细节用 history_* 回看；历史是内部工作记录，不要在对外回复里提起。')
+  const lines = [
+    switches.notes ? '## 笔记与换窗' : '## 换窗',
+    '上下文接近预算时会换到新窗口，早先的原始消息不再在上下文中；新窗口开头的【交接】列出笔记位置和回看工具。',
+  ]
+  if (switches.notes) {
+    const pending = switches.history ? '仍在处理的请求记下历史坐标 w<n>/e<seq>（history_* 结果里的窗口号与条目 id）。' : ''
+    lines.push(`边做边用 team_notes 记进自己的笔记（这条会话的工作记忆）：正在做什么、进度、决定、下一步；用户要求；关键数据与引用（确切路径、命令、报错、数字）；${pending}写明哪些已验证、哪些是推测。保持精简。`)
+    lines.push('workspace.md 是项目长期共享的知识（约定、决定、架构、踩过的坑），以后的会话和团队都会读；值得长期留下的结论整理进去，进度和临时细节留在自己的笔记。')
+    lines.push(switches.history ? '换窗后先读自己的笔记，缺的细节再用 history_* 回看。' : '换窗后先读自己的笔记。')
+    lines.push(`笔记${switches.history ? '和历史' : ''}是内部工作记录，不要在对外回复里提起。`)
+  } else if (switches.history) {
+    lines.push('换窗后缺的细节用 history_* 回看；历史是内部工作记录，不要在对外回复里提起。')
+  }
   return lines.join('\n')
 }
 

@@ -125,12 +125,19 @@ test('常驻说明：成员记历史坐标；队长按合并开关提示清单�
   assert.doesNotMatch(notesSectionText('member', { notes: true, history: true, merge: true }), /resolve|workspace-snapshots/)
 })
 
-test('普通会话（0.6.0 步骤 3）：交接只有身份与上一窗口；w1 不发；常驻说明不提团队', () => {
+test('普通会话：交接列自己的会话笔记与 workspace.md；w1 只给指针；常驻说明讲清两者分工、不提团队', () => {
   const plain = { role: 'plain', agentKey: 'plain', sessionId: 's', stateRoot: '/x' } as const
-  const text = handoffText({ identity: plain, previousWindow: 2, own: { kind: 'stale' }, metas: [], notes: false, history: true, teamHistory: true, recentNotes: 3, maxBytes: 4000 })
-  assert.equal(text, '【交接】\n你的身份：普通会话（不在团队中）。\n上一窗口：w2，原文用 history_list_items / history_search_contents / history_read_item 按窗口 id 回看\n以上是换窗时的快照。')
-  assert.equal(initialHandoffText(plain, { notes: true, history: true, teamHistory: true }, 4000), '')
+  const base = { identity: plain, previousWindow: 2, own: { kind: 'stale' } as const, metas: [], history: true, teamHistory: true, recentNotes: 3, maxBytes: 4000 }
+  assert.equal(handoffText({ ...base, notes: false }), '【交接】\n你的身份：普通会话（不在团队中）。\n上一窗口：w2，原文用 history_list_items / history_search_contents / history_read_item 按窗口 id 回看\n以上是换窗时的快照。')
+  const text = handoffText({ ...base, notes: true, metas: [{ path: 'workspace.md', lines: 3, bytes: 9, mtimeMs: 0 }] })
+  assert.match(text, /你的笔记：sessions\/s\.md（尚未创建，上一窗口未更新/)
+  assert.match(text, /共享笔记：workspace\.md（3 行）/)
+  assert.doesNotMatch(text, /团队「|任务|team_history/)
+  assert.equal(initialHandoffText(plain, { notes: true, history: true, teamHistory: true }, 4000), '【交接】\n你的身份：普通会话（不在团队中）。\n你的笔记：sessions/s.md；共享笔记：workspace.md')
+  assert.equal(initialHandoffText(plain, { notes: false, history: true, teamHistory: true }, 4000), '')
   const section = notesSectionText('plain', { notes: true, history: true })
-  assert.doesNotMatch(section, /团队|team_notes|workspace/)
-  assert.match(section, /history_\*/)
+  assert.doesNotMatch(section, /队长|成员|队友/)
+  assert.match(section, /工作记忆/)
+  assert.match(section, /workspace\.md 是项目长期共享的知识/)
+  assert.doesNotMatch(notesSectionText('plain', { notes: false, history: true }), /team_notes|workspace/)
 })

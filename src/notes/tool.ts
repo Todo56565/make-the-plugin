@@ -2,14 +2,15 @@
  * team_notes 工具：单工具多 action（list / read / write / append / search）。
  *
  * 读：本团队全部成员笔记 + workspace.md；写：自己的笔记；workspace.md 只有队长能写（设计 0.4.0 §1-3，成员在工具层拒绝）。
+ * 普通会话（0.6.0）：只有自己的会话笔记与 workspace.md（可写），没有队友笔记、待合并清单与全文记录。
  * 待合并清单：虚拟 workspace.pending.md 只读，读 workspace.md 时附带；队长用 resolve 按 id 删除（设计 0.4.0 决定 10–12）。
  */
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { TeamIdentity } from '../team/identity.ts'
-import { notesRootOf, ownNotePath, resolveNotePath } from './paths.ts'
+import type { SessionIdentity } from '../team/identity.ts'
+import { noteScopeOf, notesRootOf, resolveNotePath, selfNotePath, type NoteTeam } from './paths.ts'
 import { sliceForRead } from './read-range.ts'
 import { NotesStore, type NoteMeta } from './store.ts'
 import type { WorkspaceSnapshotPolicy } from './workspace-snapshot.ts'
@@ -18,25 +19,27 @@ import { PENDING_NOTE, parseIds, readPending, renderPending, resolvePending } fr
 export const TEAM_NOTES_TOOL = 'team_notes'
 
 export interface NotesToolDeps {
-  identityOf: (agent: Agent) => TeamIdentity | undefined
-  storeFor: (identity: TeamIdentity) => NotesStore
+  identityOf: (agent: Agent) => SessionIdentity | undefined
+  storeFor: (identity: { stateRoot: string; team?: NoteTeam }) => NotesStore
   /** search 结果上限。 */
   maxResults: number
   /** read 单次返回的字节上限（即时配置）。 */
   readMaxBytes?: () => number
   /** 写入成功后回调（记录本窗口写过自己的笔记，设计 0.3.0 §9a-7）。 */
-  onWrite?: (agent: Agent, identity: TeamIdentity, meta: NoteMeta) => void
+  onWrite?: (agent: Agent, identity: SessionIdentity, meta: NoteMeta) => void
 }
 
-/** 按状态根 + 团队代复用 NotesStore（进程内写锁按物理路径共享）。 */
-export function createStoreCache(maxFileBytes: () => number, workspaceMaxBytes: () => number = maxFileBytes, workspaceSnapshots?: () => WorkspaceSnapshotPolicy): (identity: { stateRoot: string; team: { id: string; createdAt: number } }) => NotesStore {
+/** 按状态根 + 团队代复用 NotesStore（进程内写锁按物理路径共享）；不给团队为普通会话用。 */
+export function createStoreCache(maxFileBytes: () => number, workspaceMaxBytes: () => number = maxFileBytes, workspaceSnapshots?: () => WorkspaceSnapshotPolicy): (identity: { stateRoot: string; team?: NoteTeam }) => NotesStore {
   const stores = new Map<string, NotesStore>()
   return (identity) => {
     const root = notesRootOf(identity.stateRoot)
-    const key = `${root}\0${identity.team.id}\0${identity.team.createdAt}`
+    const team = identity.team === undefined ? undefined
+      : { id: identity.team.id, createdAt: identity.team.createdAt, ...(identity.team.captainSessionId === undefined ? {} : { captainSessionId: identity.team.captainSessionId }) }
+    const key = team === undefined ? root : `${root}\0${team.id}\0${team.createdAt}\0${team.captainSessionId ?? ''}`
     let store = stores.get(key)
     if (store === undefined) {
-      store = new NotesStore(root, maxFileBytes, { id: identity.team.id, createdAt: identity.team.createdAt }, workspaceMaxBytes, { stateRoot: identity.stateRoot, workspaceSnapshots })
+      store = new NotesStore(root, maxFileBytes, team, workspaceMaxBytes, { stateRoot: identity.stateRoot, workspaceSnapshots })
       stores.set(key, store)
     }
     return store
@@ -50,22 +53,23 @@ function formatMeta(meta: NoteMeta): string {
 /** 执行一次 team_notes 调用，返回给模型的文本。纯逻辑，便于测试。 */
 export async function runTeamNotes(
   args: { action: string; path?: string; content?: string; query?: string; ids?: string; start_line?: number; stop_line?: number },
-  identity: TeamIdentity,
+  identity: SessionIdentity,
   store: NotesStore,
   maxResults: number,
   onWrite?: (meta: NoteMeta) => void,
   readMaxBytes?: number,
 ): Promise<string> {
-  const scope = { teamId: identity.team.id, fileKey: identity.fileKey }
-  const pendingText = async () => renderPending(await readPending(identity.stateRoot, identity.team))
-  const isPending = (args.path ?? '').trim() === PENDING_NOTE
+  const scope = noteScopeOf(identity)
+  const own = selfNotePath(identity)
+  const plain = identity.role === 'plain'
+  const pendingText = async () => identity.role === 'plain' ? '' : renderPending(await readPending(identity.stateRoot, identity.team))
+  const isPending = !plain && (args.path ?? '').trim() === PENDING_NOTE
   switch (args.action) {
     case 'list': {
-      const metas = await store.list(scope.teamId)
-      const own = ownNotePath(scope.teamId, scope.fileKey)
-      const pendingLine = `待合并清单：${PENDING_NOTE}（只读，读 workspace.md 时附带）`
-      if (metas.length === 0) return `还没有任何笔记。你的笔记：${own}；共享笔记：workspace.md；${pendingLine}`
-      return [`笔记（按修改时间倒序）。你的笔记：${own}`, ...metas.map(m => `- ${formatMeta(m)}`), pendingLine].join('\n')
+      const metas = await store.list(scope)
+      const pendingLine = plain ? [] : [`待合并清单：${PENDING_NOTE}（只读，读 workspace.md 时附带）`]
+      if (metas.length === 0) return [`还没有任何笔记。你的笔记：${own}；共享笔记：workspace.md`, ...pendingLine].join('；')
+      return [`笔记（按修改时间倒序）。你的笔记：${own}`, ...metas.map(m => `- ${formatMeta(m)}`), ...pendingLine].join('\n')
     }
     case 'read': {
       if (isPending) return pendingText()
@@ -75,7 +79,7 @@ export async function runTeamNotes(
       const body = text === undefined ? `${target.path} 还不存在。`
         : text === '' ? `${target.path} 为空。`
         : sliceForRead(target.path, text, args.start_line, args.stop_line, readMaxBytes)
-      return target.shared ? `${body}\n\n---\n${await pendingText()}` : body
+      return target.shared && !plain ? `${body}\n\n---\n${await pendingText()}` : body
     }
     case 'resolve': {
       if (identity.role !== 'captain') throw new Error(`只有队长能处理待合并清单（${PENDING_NOTE}）`)
@@ -93,8 +97,8 @@ export async function runTeamNotes(
       const target = resolveNotePath(args.path, scope)
       if (!target.ok) throw new Error(target.error)
       if (target.record) throw new Error(`${target.path} 是插件维护的记录，只读`)
-      if (target.shared && identity.role !== 'captain') throw new Error(`成员不能写 workspace.md（由队长或合并模型维护），请写进自己的笔记（${ownNotePath(scope.teamId, scope.fileKey)}）`)
-      if (!target.own && !target.shared) throw new Error(`只能写自己的笔记（${ownNotePath(scope.teamId, scope.fileKey)}）${identity.role === 'captain' ? '或 workspace.md' : ''}`)
+      if (target.shared && identity.role === 'member') throw new Error(`成员不能写 workspace.md（由队长或合并模型维护），请写进自己的笔记（${own}）`)
+      if (!target.own && !target.shared) throw new Error(`只能写自己的笔记（${own}）${identity.role === 'member' ? '' : '或 workspace.md'}`)
       if (args.content === undefined) throw new Error(`${args.action} 需要 content`)
       const meta = args.action === 'write' ? await store.write(target.path, args.content) : await store.append(target.path, args.content)
       onWrite?.(meta)
@@ -103,7 +107,7 @@ export async function runTeamNotes(
     case 'search': {
       const query = args.query ?? ''
       if (query === '') throw new Error('search 需要 query')
-      const { hits, truncated } = await store.search(scope.teamId, query, maxResults)
+      const { hits, truncated } = await store.search(scope, query, maxResults)
       if (hits.length === 0) return `没有找到「${query}」。`
       const lines = hits.map(h => `${h.path}:${h.line}: ${h.text}`)
       if (truncated) lines.push(`（结果已截断，仅显示前 ${maxResults} 条）`)
@@ -140,8 +144,8 @@ export function registerTeamNotesTool(ctx: Context, deps: NotesToolDeps): () => 
       const agent = exec.agent
       if (agent === undefined) throw new Error('team_notes 需要调用方 agent')
       const identity = deps.identityOf(agent)
-      if (identity === undefined) throw new Error('当前会话不属于任何 AgentTeams 团队，team_notes 不可用')
-      const store = deps.storeFor(identity)
+      if (identity === undefined) throw new Error('子会话不能使用 team_notes')
+      const store = deps.storeFor(identity.role === 'plain' ? { stateRoot: identity.stateRoot } : identity)
       const text = await runTeamNotes(args, identity, store, deps.maxResults, meta => deps.onWrite?.(agent, identity, meta), deps.readMaxBytes?.())
       return { text }
     },

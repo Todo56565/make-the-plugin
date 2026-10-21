@@ -11,7 +11,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import type { SessionIdentity, TeamIdentity } from '../team/identity.ts'
-import { notesRootOf, ownNotePath, physicalNotePath, WORKSPACE_NOTE } from '../notes/paths.ts'
+import { noteListPaths, noteScopeOf, notesRootOf, physicalNotePath, selfNotePath, WORKSPACE_NOTE } from '../notes/paths.ts'
 import { countLines, type NoteMeta } from '../notes/store.ts'
 
 export const HANDOFF_TITLE = '【交接】'
@@ -23,19 +23,19 @@ const MAX_CAPTAIN_TASK_IDS = 20
 const TRUNCATE_STEPS = [120, 60, 30, 16]
 
 /** 同步读取笔记元数据（在压缩 / 组装内同步执行）。 */
-export function listNoteMetasSync(identity: TeamIdentity): NoteMeta[] {
+export function listNoteMetasSync(identity: SessionIdentity): NoteMeta[] {
   const root = notesRootOf(identity.stateRoot)
-  const paths = [WORKSPACE_NOTE]
-  try {
-    const dir = physicalNotePath(`teams/${identity.team.id}/`, identity.team)
-    for (const name of readdirSync(join(root, ...dir.split('/').filter(Boolean)))) {
-      if (name.endsWith('.md')) paths.push(`teams/${identity.team.id}/${name}`)
-    }
-  } catch { /* 目录不存在 */ }
-  const metas: NoteMeta[] = []
-  for (const path of paths) {
+  const team = identity.role === 'plain' ? undefined : identity.team
+  let names: string[] = []
+  if (team !== undefined) {
     try {
-      const abs = join(root, ...physicalNotePath(path, identity.team).split('/'))
+      names = readdirSync(join(root, ...physicalNotePath(`teams/${team.id}/`, team).split('/').filter(Boolean)))
+    } catch { /* 目录不存在 */ }
+  }
+  const metas: NoteMeta[] = []
+  for (const path of noteListPaths(noteScopeOf(identity), team, names)) {
+    try {
+      const abs = join(root, ...physicalNotePath(path, team).split('/'))
       const text = readFileSync(abs, 'utf8')
       metas.push({ path, lines: countLines(text), bytes: Buffer.byteLength(text), mtimeMs: statSync(abs).mtimeMs })
     } catch { /* 不存在 */ }
@@ -44,9 +44,10 @@ export function listNoteMetasSync(identity: TeamIdentity): NoteMeta[] {
 }
 
 /** 自己笔记的 mtime；不存在返回 undefined。 */
-export function ownNoteMtime(identity: TeamIdentity): number | undefined {
+export function ownNoteMtime(identity: SessionIdentity): number | undefined {
   try {
-    return statSync(join(notesRootOf(identity.stateRoot), ...physicalNotePath(ownNotePath(identity.team.id, identity.fileKey), identity.team).split('/'))).mtimeMs
+    const team = identity.role === 'plain' ? undefined : identity.team
+    return statSync(join(notesRootOf(identity.stateRoot), ...physicalNotePath(selfNotePath(identity), team).split('/'))).mtimeMs
   } catch {
     return undefined
   }
@@ -140,10 +141,9 @@ function build(input: HandoffInput, recentCount: number, nameMax: number, titleM
   if (identity.role === 'plain') return buildPlain(input)
   const lines = [HANDOFF_TITLE, identityLine(identity, nameMax), taskLine(identity, titleMax)]
   if (input.notes) {
-    const own = ownNotePath(identity.team.id, identity.fileKey)
+    const own = selfNotePath(identity)
     lines.push(ownNoteLine(input, input.metas.find(m => m.path === own), own))
-    const shared = input.metas.find(m => m.path === WORKSPACE_NOTE)
-    lines.push(`共享笔记：${WORKSPACE_NOTE}（${shared === undefined ? '尚未创建' : `${shared.lines} 行`}）`)
+    lines.push(sharedNoteLine(input.metas))
     const recent = input.metas.filter(m => m.path !== own && m.path !== WORKSPACE_NOTE).slice(0, recentCount)
     if (recent.length > 0) lines.push(`最近改动的笔记：${recent.map(m => `${m.path}（${m.lines} 行，${clock(m.mtimeMs)}）`).join('；')}`)
   }
@@ -159,9 +159,22 @@ function previousWindowLine(input: HandoffInput): string {
     : `上一窗口：w${input.previousWindow}`
 }
 
-/** 普通会话的交接：没有团队与任务（笔记在 0.6.0 步骤 4 接入）。 */
+/** 普通会话的交接：没有团队与任务，笔记只有自己的会话笔记和 workspace.md（0.6.0 §3.2）。 */
 function buildPlain(input: HandoffInput): string {
-  return [HANDOFF_TITLE, PLAIN_LINE, previousWindowLine(input), '以上是换窗时的快照。'].join('\n')
+  const lines = [HANDOFF_TITLE, PLAIN_LINE]
+  if (input.notes) {
+    const own = selfNotePath(input.identity)
+    lines.push(ownNoteLine(input, input.metas.find(m => m.path === own), own))
+    lines.push(sharedNoteLine(input.metas))
+  }
+  lines.push(previousWindowLine(input))
+  lines.push(`以上是换窗时的快照${input.notes ? '，笔记以 team_notes 为准' : ''}。`)
+  return lines.join('\n')
+}
+
+function sharedNoteLine(metas: readonly NoteMeta[]): string {
+  const shared = metas.find(m => m.path === WORKSPACE_NOTE)
+  return `共享笔记：${WORKSPACE_NOTE}（${shared === undefined ? '尚未创建' : `${shared.lines} 行`}）`
 }
 
 function fits(text: string, maxBytes: number): boolean {
@@ -185,12 +198,12 @@ export function handoffText(input: HandoffInput): string {
 
 /** w1 精简版：身份 + 指针，不写任务、不带会变的元数据（§7-5）。 */
 export function initialHandoffText(identity: SessionIdentity, switches: HandoffSwitches, maxBytes: number): string {
-  if (identity.role === 'plain') return ''
+  if (identity.role === 'plain') return switches.notes ? `${HANDOFF_TITLE}\n${PLAIN_LINE}\n你的笔记：${selfNotePath(identity)}；共享笔记：${WORKSPACE_NOTE}` : ''
   const make = (nameMax: number): string => {
     const lines = [HANDOFF_TITLE, identityLine(identity, nameMax)]
     const pointers: string[] = []
     if (switches.notes) {
-      pointers.push(`你的笔记：${ownNotePath(identity.team.id, identity.fileKey)}`, `共享笔记：${WORKSPACE_NOTE}`)
+      pointers.push(`你的笔记：${selfNotePath(identity)}`, `共享笔记：${WORKSPACE_NOTE}`)
     }
     if (switches.teamHistory) pointers.push(teamHistoryLine(identity))
     if (pointers.length > 0) lines.push(pointers.join('；'))

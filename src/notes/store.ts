@@ -11,7 +11,7 @@
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { atomicWrite } from '../context/atomic.ts'
-import { WORKSPACE_NOTE, physicalNotePath, type NoteTeam } from './paths.ts'
+import { WORKSPACE_NOTE, noteListPaths, physicalNotePath, type NoteScope, type NoteTeam } from './paths.ts'
 import { lockPath } from '../context/layout.ts'
 import { withFileLock } from '../context/lock.ts'
 import { snapshotWorkspaceBefore, type WorkspaceSnapshotPolicy } from './workspace-snapshot.ts'
@@ -129,25 +129,26 @@ export class NotesStore {
     })
   }
 
-  /** 列出共享笔记与某团队的全部笔记，按修改时间倒序。 */
-  async list(teamId: string): Promise<NoteMeta[]> {
-    const paths = [WORKSPACE_NOTE]
-    try {
-      const dir = physicalNotePath(`teams/${teamId}/`, this.team)
-      for (const name of await readdir(join(this.root, ...dir.split('/').filter(Boolean)))) {
-        if (name.endsWith('.md')) paths.push(`teams/${teamId}/${name}`)
+  /** 列出可读笔记（共享笔记 + 本团队全部笔记，或普通会话自己的笔记），按修改时间倒序。 */
+  async list(scope: NoteScope): Promise<NoteMeta[]> {
+    let names: string[] = []
+    if ('teamId' in scope) {
+      try {
+        const dir = physicalNotePath(`teams/${scope.teamId}/`, this.team)
+        names = await readdir(join(this.root, ...dir.split('/').filter(Boolean)))
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
       }
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
     }
+    const paths = noteListPaths(scope, this.team, names)
     const metas = (await Promise.all(paths.map(p => this.meta(p)))).filter((m): m is NoteMeta => m !== undefined)
     return metas.sort((a, b) => b.mtimeMs - a.mtimeMs || (a.path < b.path ? -1 : 1))
   }
 
   /** 在可读笔记中做区分大小写的字面搜索。 */
-  async search(teamId: string, query: string, limit: number): Promise<{ hits: SearchHit[]; truncated: boolean }> {
+  async search(scope: NoteScope, query: string, limit: number): Promise<{ hits: SearchHit[]; truncated: boolean }> {
     const hits: SearchHit[] = []
-    for (const meta of await this.list(teamId)) {
+    for (const meta of await this.list(scope)) {
       const text = (await this.read(meta.path)) ?? ''
       const lines = text.split('\n')
       for (let i = 0; i < lines.length; i++) {
