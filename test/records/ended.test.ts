@@ -30,7 +30,12 @@ function setup() {
   put(join(attemptSnapshotDir(root, 'old', 1000, 't1', 1), '001-aaaaaaaa.md'), '有终态')
   put(join(attemptSnapshotDir(root, 'old', 1000, 't2', 1), '001-bbbbbbbb.md'), '无终态')
   put(join(attemptSnapshotDir(root, 'live', 1000, 't9', 1), '001-cccccccc.md'), '活动代不动')
-  put(fullVolumePath(root, 1), `<!-- full-entry ${JSON.stringify({ key: fullEntryKey('old', 1000, 't1', 1), at: 1 })} -->\n## x\n`)
+  // E5a：带 attemptId 的目录按新键判断；cancelled（旧键）的带 id 目录也算已记
+  put(join(attemptSnapshotDir(root, 'old', 1000, 't3', 1, 'dddddddd-x'), '001-dddddddd.md'), '新键已记')
+  put(join(attemptSnapshotDir(root, 'old', 1000, 't3', 1, 'eeeeeeee-x'), '001-eeeeeeee.md'), '被丢弃的那次')
+  put(join(attemptSnapshotDir(root, 'old', 1000, 't4', 1, 'ffffffff-x'), '001-ffffffff.md'), 'cancelled 旧键')
+  put(fullVolumePath(root, 1), [fullEntryKey('old', 1000, 't1', 1), fullEntryKey('old', 1000, 't3', 1, 'dddddddd'), fullEntryKey('old', 1000, 't4', 1)]
+    .map(key => `<!-- full-entry ${JSON.stringify({ key, at: 1 })} -->\n## x\n`).join(''))
   put(pendingPath(root, 'gone', 5), '')
   put(pendingPath(root, 'old', 1000), '{"schema":1}\n')
   return root
@@ -47,8 +52,11 @@ test('收尾：删无终态 attempt、搬在用笔记、记结束时间、删空
   const r = await sweepEndedGenerations(root, { now: 10 * DAY })
   assert.deepEqual(r.newlyEnded, ['gone@5', 'old@rs'])
   assert.equal(r.movedNotes, 2)
-  assert.equal(r.removedAttempts, 1)
+  assert.equal(r.removedAttempts, 2)
   assert.ok(existsSync(attemptSnapshotDir(root, 'old', 1000, 't1', 1)))
+  assert.ok(existsSync(attemptSnapshotDir(root, 'old', 1000, 't3', 1, 'dddddddd')))
+  assert.equal(existsSync(attemptSnapshotDir(root, 'old', 1000, 't3', 1, 'eeeeeeee')), false)
+  assert.ok(existsSync(attemptSnapshotDir(root, 'old', 1000, 't4', 1, 'ffffffff')))
   assert.equal(existsSync(attemptSnapshotDir(root, 'old', 1000, 't2', 1)), false)
   assert.ok(existsSync(attemptSnapshotDir(root, 'live', 1000, 't9', 1)))
   assert.equal(readFileSync(join(recordsTeamDir(root, 'old', 1000), 'notes', 'alice.md'), 'utf8'), 'old 笔记\n')

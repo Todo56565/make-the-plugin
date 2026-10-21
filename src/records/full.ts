@@ -13,7 +13,7 @@
 
 import { appendFile, mkdir, readdir, readFile, stat } from 'node:fs/promises'
 import { dirname, join, relative } from 'node:path'
-import { contextRootOf, fullCursorPath, fullVolumePath, generationOf, lockPath, notesTeamDir, zoneDir } from '../context/layout.ts'
+import { attemptDirName, attemptId8, contextRootOf, fullCursorPath, fullVolumePath, generationOf, lockPath, notesTeamDir, zoneDir } from '../context/layout.ts'
 import { atomicWrite } from '../context/atomic.ts'
 import { withFileLock } from '../context/lock.ts'
 import { CAPTAIN_KEY, sanitizeKey, type TeamInfo, type TeamTaskInfo } from '../team/team-file.ts'
@@ -27,8 +27,18 @@ export const TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled'])
 
 const MARKER = /^<!-- full-entry (\{.*\}) -->$/gm
 
-export function fullEntryKey(teamId: string, createdAt: number, taskId: string, attempt: number): string {
-  return `${teamId}@${generationOf(createdAt)}:${taskId}:${attempt}`
+/**
+ * 全文去重键 `<teamId>@<代>:<taskId>:<attempt>[:<attemptId 前 8 位>]`。
+ * 只有 completed / failed 带 attemptId（设计 0.5.0 E5a）；cancelled 与缺 attemptId 用旧键。
+ */
+export function fullEntryKey(teamId: string, createdAt: number, taskId: string, attempt: number, attemptId?: string): string {
+  const id8 = attemptId8(attemptId)
+  return `${teamId}@${generationOf(createdAt)}:${taskId}:${attempt}${id8 === undefined ? '' : `:${id8}`}`
+}
+
+/** 某终态任务的全文键。 */
+export function taskEntryKey(team: TeamInfo, task: TeamTaskInfo): string {
+  return fullEntryKey(team.id, team.createdAt, task.id, task.attempt, PENDING_STATUSES.has(task.status) ? task.attemptId : undefined)
 }
 
 export interface FullCursor {
@@ -174,19 +184,20 @@ async function snapshotsFor(stateRoot: string, team: TeamInfo, task: TeamTaskInf
     if (content !== '') {
       await takeSnapshot({
         stateRoot, teamId: team.id, createdAt: team.createdAt, taskId: task.id, attempt: task.attempt,
+        ...(task.attemptId === undefined ? {} : { attemptId: task.attemptId }),
         fileKey, content, ref, reason: 'terminal', at,
       })
     }
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
   }
-  const metas = await readSnapshotMetas(stateRoot, team.id, team.createdAt, task.id, task.attempt)
+  const metas = await readSnapshotMetas(stateRoot, team.id, team.createdAt, task.id, task.attempt, task.attemptId)
   const records = zoneDir(stateRoot, 'records')
   const base = relative(contextRootOf(stateRoot), records).split('\\').join('/')
   return metas.map(meta => ({
     meta,
-    // 虚拟路径：records/teams/<teamId>/<taskId>/a<attempt>/<file>
-    path: `${base}/teams/${team.id}/${task.id}/a${task.attempt}/${meta.file}`,
+    // 虚拟路径：records/teams/<teamId>/<taskId>/<attemptDirName>/<file>
+    path: `${base}/teams/${team.id}/${task.id}/${attemptDirName(task.attempt, task.attemptId)}/${meta.file}`,
   }))
 }
 
@@ -234,7 +245,7 @@ async function recordNow(stateRoot: string, teams: readonly TeamInfo[], now: num
   const terminal: RecordedTask[] = []
   for (const team of teams) {
     for (const task of team.tasks) {
-      if (TERMINAL_STATUSES.has(task.status)) terminal.push({ team, task, key: fullEntryKey(team.id, team.createdAt, task.id, task.attempt) })
+      if (TERMINAL_STATUSES.has(task.status)) terminal.push({ team, task, key: taskEntryKey(team, task) })
     }
   }
   let cursor = await readCursor(stateRoot)

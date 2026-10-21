@@ -61,9 +61,29 @@ export function recordsTeamDir(stateRoot: string, teamId: string, createdAt: num
   return join(zoneDir(stateRoot, 'records'), 'teams', BACKEND_NANMI, teamGenKey(teamId, createdAt))
 }
 
-/** 某 attempt 的成员笔记快照目录：`…/<taskId>/a<attempt>/` */
-export function attemptSnapshotDir(stateRoot: string, teamId: string, createdAt: number, taskId: string, attempt: number): string {
-  return join(recordsTeamDir(stateRoot, teamId, createdAt), taskId, `a${attempt}`)
+/** attemptId 的前 8 位（只含字母数字、`_`、`-`）；缺失或不合法返回 undefined。 */
+export function attemptId8(attemptId: string | undefined): string | undefined {
+  if (attemptId === undefined) return undefined
+  const id8 = attemptId.slice(0, 8)
+  return /^[0-9A-Za-z_-]+$/.test(id8) ? id8 : undefined
+}
+
+/** attempt 目录名：`a<attempt>-<attemptId 前 8 位>`；attemptId 缺失时 `a<attempt>`（设计 0.6.0 §1 / 0.5.0 E5a）。 */
+export function attemptDirName(attempt: number, attemptId?: string): string {
+  const id8 = attemptId8(attemptId)
+  return id8 === undefined ? `a${attempt}` : `a${attempt}-${id8}`
+}
+
+/** 解析 attempt 目录名；不是 attempt 目录返回 undefined。 */
+export function parseAttemptDirName(name: string): { attempt: number; id8?: string } | undefined {
+  const m = /^a(\d+)(?:-([0-9A-Za-z_-]{1,8}))?$/.exec(name)
+  if (m === null) return undefined
+  return m[2] === undefined ? { attempt: Number(m[1]) } : { attempt: Number(m[1]), id8: m[2] }
+}
+
+/** 某 attempt 的成员笔记快照目录：`…/<taskId>/<attemptDirName>/` */
+export function attemptSnapshotDir(stateRoot: string, teamId: string, createdAt: number, taskId: string, attempt: number, attemptId?: string): string {
+  return join(recordsTeamDir(stateRoot, teamId, createdAt), taskId, attemptDirName(attempt, attemptId))
 }
 
 /** 快照文件名：`<seq>-<hash8>.md`，seq 补零到 3 位。 */

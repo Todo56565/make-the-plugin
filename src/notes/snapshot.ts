@@ -28,6 +28,8 @@ export interface SnapshotRequest {
   createdAt: number
   taskId: string
   attempt: number
+  /** 该 attempt 的 attemptId（决定目录名）。 */
+  attemptId?: string
   fileKey: string
   /** 笔记全文（拍照时刻读到的内容）。 */
   content: string
@@ -85,7 +87,7 @@ const chains = new Map<string, Promise<unknown>>()
 
 /** 拍一份快照；内容与最新一份相同时不重拍。 */
 export function takeSnapshot(req: SnapshotRequest): Promise<SnapshotResult> {
-  const dir = attemptSnapshotDir(req.stateRoot, req.teamId, req.createdAt, req.taskId, req.attempt)
+  const dir = attemptSnapshotDir(req.stateRoot, req.teamId, req.createdAt, req.taskId, req.attempt, req.attemptId)
   const prior = chains.get(dir) ?? Promise.resolve()
   const run = prior.catch(() => undefined).then(() => snapshotNow(dir, req))
   chains.set(dir, run)
@@ -120,8 +122,8 @@ async function snapshotNow(dir: string, req: SnapshotRequest): Promise<SnapshotR
 }
 
 /** 读某 attempt 的快照元数据（全文条目挂快照时用）；坏行跳过。 */
-export async function readSnapshotMetas(stateRoot: string, teamId: string, createdAt: number, taskId: string, attempt: number): Promise<SnapshotMeta[]> {
-  const dir = attemptSnapshotDir(stateRoot, teamId, createdAt, taskId, attempt)
+export async function readSnapshotMetas(stateRoot: string, teamId: string, createdAt: number, taskId: string, attempt: number, attemptId?: string): Promise<SnapshotMeta[]> {
+  const dir = attemptSnapshotDir(stateRoot, teamId, createdAt, taskId, attempt, attemptId)
   let text: string
   try {
     text = await readFile(join(dir, SNAPSHOT_META_FILE), 'utf8')
@@ -163,6 +165,7 @@ export function snapshotOnWindowSwitch(identity: TeamIdentity, ref: string, at =
     createdAt: identity.team.createdAt,
     taskId: task.id,
     attempt: task.attempt,
+    ...(task.attemptId === undefined ? {} : { attemptId: task.attemptId }),
     fileKey: identity.fileKey,
     content,
     ref,

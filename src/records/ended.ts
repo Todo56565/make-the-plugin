@@ -17,7 +17,7 @@ import { existsSync } from 'node:fs'
 import { mkdir, readdir, readFile, rename, rm, rmdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { atomicWrite } from '../context/atomic.ts'
-import { BACKEND_NANMI, lockPath, notesTeamDir, parseTeamGenKey, pendingDir, pendingPath, recordsTeamDir, teamGenKey, zoneDir } from '../context/layout.ts'
+import { BACKEND_NANMI, lockPath, notesTeamDir, parseAttemptDirName, parseTeamGenKey, pendingDir, pendingPath, recordsTeamDir, teamGenKey, zoneDir } from '../context/layout.ts'
 import { withFileLock } from '../context/lock.ts'
 import { readTeamFile } from '../team/team-file.ts'
 import { fullEntryKey, scanFullKeys } from './full.ts'
@@ -109,9 +109,11 @@ async function removeUnrecordedAttempts(dir: string, gen: EndedGeneration, recor
     const taskDir = join(dir, taskId)
     if (!await isDir(taskDir)) continue
     for (const a of await names(taskDir)) {
-      const m = /^a(\d+)$/.exec(a)
-      if (m === null) continue
-      if (recorded.has(fullEntryKey(gen.teamId, gen.createdAt, taskId, Number(m[1])))) continue
+      const parsed = parseAttemptDirName(a)
+      if (parsed === undefined) continue
+      // 带 id 的目录：completed / failed 用新键；cancelled 的全文用旧键，也算已记
+      if (parsed.id8 !== undefined && recorded.has(fullEntryKey(gen.teamId, gen.createdAt, taskId, parsed.attempt, parsed.id8))) continue
+      if (recorded.has(fullEntryKey(gen.teamId, gen.createdAt, taskId, parsed.attempt))) continue
       await rm(join(taskDir, a), { recursive: true, force: true })
       removed++
     }

@@ -73,3 +73,19 @@ test('终态快照坐标：locate 给出 w/e 并按 updatedAt 截断；locate �
   await recordTerminalTasks(root, [team([t1, done('t2')])], 0, async () => { throw new Error('读不到') })
   assert.equal((await readSnapshotMetas(root, 'team-a', createdAt, 't2', 1))[0]!.ref, 'sess-alice')
 })
+
+test('E5a：同一 attempt 整数、不同 attemptId 各记一条，快照分目录；cancelled 用旧键', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'full-'))
+  await recordTerminalTasks(root, [team([])])
+  mkdirSync(notesTeamDir(root, 'team-a', createdAt), { recursive: true })
+  writeFileSync(join(notesTeamDir(root, 'team-a', createdAt), 'alice.md'), '笔记\n')
+  const first = await recordTerminalTasks(root, [team([done('t1', 1, { attemptId: 'aaaaaaaa-1111' })])])
+  assert.deepEqual(first.map(w => w.key), [`team-a@${createdAt.toString(36)}:t1:1:aaaaaaaa`])
+  // 回退后重做：attempt 仍为 1，attemptId 不同
+  const redo = await recordTerminalTasks(root, [team([done('t1', 1, { attemptId: 'bbbbbbbb-2222' }), done('t2', 1, { status: 'cancelled', attemptId: 'cccccccc' })])])
+  assert.deepEqual(redo.map(w => w.key), [`team-a@${createdAt.toString(36)}:t1:1:bbbbbbbb`, `team-a@${createdAt.toString(36)}:t2:1`])
+  const text = readFileSync(fullVolumePath(root, 1), 'utf8')
+  assert.match(text, /records\/teams\/team-a\/t1\/a1-aaaaaaaa\/001-/)
+  assert.match(text, /records\/teams\/team-a\/t1\/a1-bbbbbbbb\/001-/)
+  assert.equal(fullEntryKey('team-a', createdAt, 't1', 1, undefined), `team-a@${createdAt.toString(36)}:t1:1`)
+})

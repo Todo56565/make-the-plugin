@@ -4,7 +4,7 @@
  * - 按团队代分文件：物理 `shared/pending/nanmi/<teamId>@<代>.jsonl`，模型看到虚拟 `workspace.pending.md`（映射到本队当前代，由本模块渲染）；
  *   合并流程扫整个 `shared/pending/nanmi/` 目录即全局队列（listPendingTeams）；结束代整个文件随代处理（第 10 步）；
  * - 每行一条：`{ schema, id, key, teamId, createdAt, teamName, taskId, subject, attempt, member, status, snapshot, ref, at }`；
- *   `id` 为短 id（`p` + 唯一键 SHA-256 前 6 位十六进制，撞了再加长），`key` 即全文唯一键 `<teamId>@<代>:<taskId>:<attempt>`；
+ *   `id` 为短 id（`p` + 唯一键 SHA-256 前 6 位十六进制，撞了再加长），`key` 即全文唯一键 `<teamId>@<代>:<taskId>:<attempt>[:<attemptId 前 8 位>]`；
  * - 只有插件新增（任务终态时，与全文条目同时）；队长 / 合并流程只能按 id 删除既有行，不能改、不能加；其他 Agent 只读；
  * - 新增是追加；删除是锁内读出 + 原子重写。两者都持该团队代的跨进程锁 `shared/locks/pending-<teamId>@<代>.lock`。
  * - 坏行、未知 schema 的行读取时跳过，删除重写时原样保留（不丢别人的数据）。
